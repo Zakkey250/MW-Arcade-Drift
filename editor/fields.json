@@ -1,0 +1,335 @@
+[
+  {
+    "key": "entrySpeedMps",
+    "value": 12.0,
+    "min": 8.0,
+    "max": 50.0,
+    "section": "drift",
+    "ja": "侵入速度 (m/s)",
+    "en": "Entry speed (m/s)"
+  },
+  {
+    "key": "entryHoldSeconds",
+    "value": 0.025,
+    "min": 0.01,
+    "max": 0.5,
+    "section": "drift",
+    "ja": "ブレーキ保持 (秒)",
+    "en": "Brake hold (s)"
+  },
+  {
+    "key": "neutralExitSeconds",
+    "value": 0.15,
+    "min": 0.05,
+    "max": 0.5,
+    "section": "drift",
+    "ja": "中央入力で解除 (秒)",
+    "en": "Neutral exit delay (s)"
+  },
+  {
+    "key": "baseSlipRad",
+    "value": 0.09,
+    "min": 0.0,
+    "max": 0.3,
+    "section": "drift",
+    "ja": "基礎滑り角 (rad)",
+    "en": "Base slip (rad)"
+  },
+  {
+    "key": "slideSlipRad",
+    "value": 0.18,
+    "min": 0.0,
+    "max": 0.4,
+    "section": "drift",
+    "ja": "維持時の滑り角 (rad)",
+    "en": "Sustained slip (rad)"
+  },
+  {
+    "key": "handbrakeSlipRad",
+    "value": 0.14,
+    "min": 0.0,
+    "max": 0.3,
+    "section": "drift",
+    "ja": "HB追加角 (rad)",
+    "en": "Handbrake slip (rad)"
+  },
+  {
+    "key": "targetYawMax",
+    "value": 0.8,
+    "min": 0.1,
+    "max": 1.2,
+    "section": "drift",
+    "ja": "最大目標旋回 (rad/s)",
+    "en": "Maximum turn rate (rad/s)"
+  },
+  {
+    "key": "targetPathSpeed",
+    "value": 36.0,
+    "min": 5.0,
+    "max": 60.0,
+    "section": "drift",
+    "ja": "速度別旋回係数",
+    "en": "Speed-based turn coefficient"
+  },
+  {
+    "key": "highSpeedGain",
+    "value": 0.3,
+    "min": 0.0,
+    "max": 0.6,
+    "section": "drift",
+    "ja": "高速域の旋回増幅",
+    "en": "High-speed turn boost"
+  },
+  {
+    "key": "boostStartKmh",
+    "value": 120.0,
+    "min": 40.0,
+    "max": 250.0,
+    "section": "drift",
+    "ja": "増幅開始 (km/h)",
+    "en": "Boost starts (km/h)"
+  },
+  {
+    "key": "boostEndKmh",
+    "value": 240.0,
+    "min": 80.0,
+    "max": 400.0,
+    "section": "drift",
+    "ja": "増幅完了 (km/h)",
+    "en": "Boost ends (km/h)"
+  },
+  {
+    "key": "handbrakeTurnGain",
+    "value": 0.25,
+    "min": 0.0,
+    "max": 0.5,
+    "section": "drift",
+    "ja": "HB旋回増幅",
+    "en": "Handbrake turn boost"
+  },
+  {
+    "key": "pathAssistLimit",
+    "value": 30.0,
+    "min": 0.0,
+    "max": 50.0,
+    "section": "drift",
+    "ja": "軌道補助の上限係数",
+    "en": "Path assistance limit"
+  },
+  {
+    "key": "pathSlew",
+    "value": 0.9,
+    "min": 0.1,
+    "max": 1.5,
+    "section": "drift",
+    "ja": "軌道補助の変化速度",
+    "en": "Path assistance slew"
+  },
+  {
+    "key": "refundFraction",
+    "value": 0.98,
+    "min": 0.0,
+    "max": 1.0,
+    "section": "drift",
+    "ja": "速度損失の補填率",
+    "en": "Speed loss refund ratio"
+  },
+  {
+    "key": "recoveryAccel",
+    "value": 3.0,
+    "min": 0.0,
+    "max": 6.0,
+    "section": "drift",
+    "ja": "速度回復加速度",
+    "en": "Speed recovery acceleration"
+  },
+  {
+    "key": "refundMaxAccel",
+    "value": 18.0,
+    "min": 0.0,
+    "max": 20.0,
+    "section": "drift",
+    "ja": "速度補填の最大加速度",
+    "en": "Maximum refund acceleration"
+  },
+  {
+    "key": "orbitGain",
+    "value": 1.8,
+    "min": 0.0,
+    "max": 3.0,
+    "section": "camera",
+    "ja": "回り込み感度",
+    "en": "Orbit sensitivity"
+  },
+  {
+    "key": "orbitMaxRad",
+    "value": 0.4886922,
+    "min": 0.0,
+    "max": 0.7,
+    "section": "camera",
+    "ja": "最大回り込み (rad)",
+    "en": "Maximum orbit (rad)"
+  },
+  {
+    "key": "orbitSpeed",
+    "value": 0.45,
+    "min": 0.05,
+    "max": 1.0,
+    "section": "camera",
+    "ja": "回り込み速度",
+    "en": "Orbit speed"
+  },
+  {
+    "key": "orbitAccel",
+    "value": 0.8,
+    "min": 0.1,
+    "max": 2.0,
+    "section": "camera",
+    "ja": "回り込み加速度",
+    "en": "Orbit acceleration"
+  },
+  {
+    "key": "rollGain",
+    "value": 0.06,
+    "min": 0.0,
+    "max": 0.2,
+    "section": "camera",
+    "ja": "傾き感度",
+    "en": "Roll sensitivity"
+  },
+  {
+    "key": "rollMaxRad",
+    "value": 0.0174533,
+    "min": 0.0,
+    "max": 0.05,
+    "section": "camera",
+    "ja": "最大傾き (rad)",
+    "en": "Maximum roll (rad)"
+  },
+  {
+    "key": "rollSpeed",
+    "value": 0.045,
+    "min": 0.01,
+    "max": 0.1,
+    "section": "camera",
+    "ja": "傾き速度",
+    "en": "Roll speed"
+  },
+  {
+    "key": "rollAccel",
+    "value": 0.12,
+    "min": 0.02,
+    "max": 0.3,
+    "section": "camera",
+    "ja": "傾き加速度",
+    "en": "Roll acceleration"
+  },
+  {
+    "key": "zoomSlipRad",
+    "value": 0.12,
+    "min": 0.03,
+    "max": 0.4,
+    "section": "camera",
+    "ja": "最大接近の滑り角 (rad)",
+    "en": "Slip for full zoom (rad)"
+  },
+  {
+    "key": "zoomSpeed",
+    "value": 0.5,
+    "min": 0.1,
+    "max": 1.0,
+    "section": "camera",
+    "ja": "ズーム速度",
+    "en": "Zoom speed"
+  },
+  {
+    "key": "zoomAccel",
+    "value": 0.75,
+    "min": 0.1,
+    "max": 2.0,
+    "section": "camera",
+    "ja": "ズーム加速度",
+    "en": "Zoom acceleration"
+  },
+  {
+    "key": "minDistance",
+    "value": 3.75,
+    "min": 3.0,
+    "max": 8.0,
+    "section": "camera",
+    "ja": "最短距離",
+    "en": "Minimum distance"
+  },
+  {
+    "key": "closeFraction",
+    "value": 0.38,
+    "min": 0.0,
+    "max": 0.5,
+    "section": "camera",
+    "ja": "接近率",
+    "en": "Close-up ratio"
+  },
+  {
+    "key": "sideAngleRad",
+    "value": 0.2,
+    "min": 0.05,
+    "max": 0.5,
+    "section": "camera",
+    "ja": "左右構図の角度 (rad)",
+    "en": "Side framing angle (rad)"
+  },
+  {
+    "key": "sideOffset",
+    "value": 0.25,
+    "min": 0.0,
+    "max": 0.5,
+    "section": "camera",
+    "ja": "左右の寄せ量",
+    "en": "Lateral aim offset"
+  },
+  {
+    "key": "lookAhead",
+    "value": 0.35,
+    "min": 0.0,
+    "max": 0.8,
+    "section": "camera",
+    "ja": "前方の注視量",
+    "en": "Forward aim offset"
+  },
+  {
+    "key": "eyeHeight",
+    "value": -0.56,
+    "min": -0.8,
+    "max": 0.5,
+    "section": "camera",
+    "ja": "視点の高さ",
+    "en": "Eye height"
+  },
+  {
+    "key": "maxDrop",
+    "value": 0.82,
+    "min": 0.0,
+    "max": 1.0,
+    "section": "camera",
+    "ja": "最大下降量",
+    "en": "Maximum lowering"
+  },
+  {
+    "key": "maxRise",
+    "value": 0.2,
+    "min": 0.0,
+    "max": 1.0,
+    "section": "camera",
+    "ja": "最大上昇量",
+    "en": "Maximum raising"
+  },
+  {
+    "key": "targetHeight",
+    "value": -0.68,
+    "min": -1.0,
+    "max": 0.5,
+    "section": "camera",
+    "ja": "注視点の高さ",
+    "en": "Target height"
+  }
+]

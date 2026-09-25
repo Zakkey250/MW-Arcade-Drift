@@ -1,0 +1,11 @@
+/bin/
+/dist/
+/evidence/
+/backups/
+/quarantine/
+/research/
+/obj*/
+*.log
+*.csv
+*.pdb
+*.user

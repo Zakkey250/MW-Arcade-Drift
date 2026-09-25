@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "enabled": true,
+  "entrySpeedMps": 12,
+  "entryHoldSeconds": 0.025,
+  "neutralExitSeconds": 0.15,
+  "baseSlipRad": 0.09,
+  "slideSlipRad": 0.18,
+  "handbrakeSlipRad": 0.14,
+  "targetYawMax": 0.8,
+  "targetPathSpeed": 36,
+  "highSpeedGain": 0.3,
+  "boostStartKmh": 120,
+  "boostEndKmh": 240,
+  "handbrakeTurnGain": 0.25,
+  "pathAssistLimit": 30,
+  "pathSlew": 0.9,
+  "refundFraction": 0.98,
+  "recoveryAccel": 3,
+  "refundMaxAccel": 18
+}

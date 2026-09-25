@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "language": "auto",
+  "hud": {
+    "enabled": true,
+    "right": 42,
+    "bottom": 30,
+    "size": 28,
+    "opacity": 0.9
+  }
+}
