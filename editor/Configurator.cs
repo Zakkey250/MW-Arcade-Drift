@@ -16,16 +16,15 @@ class Field {
 class Editor : Form {
  static JavaScriptSerializer json=new JavaScriptSerializer();
  string root,language="auto",active="",driftHash,cameraHash;
- Dictionary<string,object> drift,camera,baseDrift,baseCamera;
- List<Field> fields;bool changing,dirty;int lastTarget;
- bool testing; DialogResult testDecision; string lastError;
+ Dictionary<string,object> drift,camera;
+ List<Field> fields;bool changing,dirty;int lastTarget,lastMode;
+ bool testing; DialogResult testDecision; DialogResult? testModeDecision; string lastError;
  ComboBox targets=new ComboBox(),languages=new ComboBox(),mode=new ComboBox();
  TabControl tabs=new TabControl();Label location=new Label(),status=new Label();
  Button save=new Button(),refresh=new Button(),browse=new Button();
  public string T(string ja,string en){return Japanese?ja:en;}
  bool Japanese {get{return language=="ja"||(language=="auto"&&CultureInfo.CurrentUICulture.TwoLetterISOLanguageName=="ja");}}
  static Dictionary<string,object> Read(string path){return json.Deserialize<Dictionary<string,object>>(File.ReadAllText(path,Encoding.UTF8));}
- static Dictionary<string,object> Clone(Dictionary<string,object> value){return json.Deserialize<Dictionary<string,object>>(json.Serialize(value));}
  static string Hash(string path){using(var sha=SHA256.Create())return Convert.ToBase64String(sha.ComputeHash(File.ReadAllBytes(path)));}
  static string Pretty(object value){
   string s=json.Serialize(value);var b=new StringBuilder();int depth=0;bool quoted=false,escape=false;
@@ -51,8 +50,18 @@ class Editor : Form {
   location.Dock=DockStyle.Fill;location.AutoEllipsis=true;layout.Controls.Add(location,0,1);tabs.Dock=DockStyle.Fill;layout.Controls.Add(tabs,0,2);
   var footer=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2};footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,170));status.Dock=DockStyle.Fill;save.Dock=DockStyle.Fill;footer.Controls.Add(status,0,0);footer.Controls.Add(save,1,0);layout.Controls.Add(footer,0,3);
   targets.SelectedIndexChanged+=(s,e)=>{if(changing)return;if(!ConfirmDirty()){changing=true;targets.SelectedIndex=lastTarget;changing=false;return;}LoadTarget();};
-  mode.SelectedIndexChanged+=(s,e)=>{if(changing)return;baseDrift=Clone(drift);baseCamera=Clone(camera);RenderTabs();};
-  languages.SelectedIndexChanged+=(s,e)=>{if(changing)return;language=new[]{"auto","ja","en"}[languages.SelectedIndex];try{SaveLanguage();baseDrift=Clone(drift);baseCamera=Clone(camera);Translate();RenderTabs();}catch(Exception ex){Error(ex);}};
+  mode.SelectedIndexChanged+=(s,e)=>{
+   if(changing||mode.SelectedIndex<0||mode.SelectedIndex==lastMode)return;
+   int selected=mode.SelectedIndex;
+   var answer=testing?(testModeDecision??DialogResult.Yes):MessageBox.Show(this,
+    T("編集中の値は保持されます。簡易スライダーを動かすと、関連する詳細項目を標準値からまとめて再計算します。\n編集モードを切り替えますか？",
+      "Your edited values will be kept. Moving a Simple slider recalculates its related Advanced fields from the shipped defaults.\nSwitch editing mode?"),
+    T("編集モードの切替","Switch editing mode"),MessageBoxButtons.YesNo,MessageBoxIcon.Information,MessageBoxDefaultButton.Button2);
+   if(answer!=DialogResult.Yes){changing=true;mode.SelectedIndex=lastMode;changing=false;return;}
+   try{SaveEditorMode(selected);lastMode=selected;RenderTabs();}
+   catch(Exception ex){changing=true;mode.SelectedIndex=lastMode;changing=false;Error(ex);}
+  };
+  languages.SelectedIndexChanged+=(s,e)=>{if(changing)return;language=new[]{"auto","ja","en"}[languages.SelectedIndex];try{SaveLanguage();Translate();RenderTabs();}catch(Exception ex){Error(ex);}};
   tabs.SelectedIndexChanged+=(s,e)=>UpdateLocation();
   refresh.Click+=(s,e)=>{if(ConfirmDirty())OpenRoot();};browse.Click+=(s,e)=>{if(!ConfirmDirty())return;using(var d=new FolderBrowserDialog()){d.Description=T("MWArcadeDriftフォルダーを選択","Select the MWArcadeDrift folder");d.SelectedPath=root;if(d.ShowDialog()==DialogResult.OK){string previousRoot=root;root=d.SelectedPath;if(!OpenRoot())root=previousRoot;UpdateLocation();}}};save.Click+=(s,e)=>Save();
   FormClosing+=(s,e)=>{if(!ConfirmDirty())e.Cancel=true;};OpenRoot();
@@ -71,7 +80,7 @@ class Editor : Form {
  }
  bool ConfirmDirty(){if(!dirty)return true;var r=AskToSave();if(r!=DialogResult.Yes&&r!=DialogResult.No)return false;if(r==DialogResult.Yes)return Save();dirty=false;return true;}
  void Translate(){
-  int mi=Math.Max(0,mode.SelectedIndex);changing=true;mode.Items.Clear();mode.Items.AddRange(new object[]{T("簡易モード","Simple"),T("アドバンス","Advanced")});mode.SelectedIndex=mi;
+  int mi=mode.Items.Count==0?lastMode:Math.Max(0,mode.SelectedIndex);changing=true;mode.Items.Clear();mode.Items.AddRange(new object[]{T("簡易モード","Simple"),T("アドバンス","Advanced")});mode.SelectedIndex=mi;
   languages.Items.Clear();languages.Items.AddRange(new object[]{T("言語: システム自動","Language: System"),"日本語","English"});languages.SelectedIndex=language=="ja"?1:language=="en"?2:0;
   if(targets.Items.Count>0)targets.Items[0]=T("デフォルト（新規車の基準）","Default (template for new cars)");changing=false;
   save.Text=T("変更を保存","Save changes");refresh.Text=T("再読込","Reload");browse.Text=T("場所を選ぶ","Browse");UpdateLocation();
@@ -87,14 +96,21 @@ class Editor : Form {
    targets.SelectedIndex=0;changing=false;Translate();LoadTarget();return true;
   }catch(Exception ex){changing=false;save.Enabled=false;Error(ex);return false;}
  }
+ int ReadEditorMode(){
+  var file=Path.Combine(Folder,"editor_ui.json");
+  if(!File.Exists(file))return 0;
+  try{var ui=Read(file);return ui.ContainsKey("mode")&&Convert.ToString(ui["mode"])=="advanced"?1:0;}
+  catch{return 0;}
+ }
  void LoadTarget(){
-  string previous=active;int previousIndex=lastTarget;
+  string previous=active;int previousIndex=lastTarget,previousMode=lastMode;
   try{using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
    active=targets.SelectedIndex<=0?"":Convert.ToString(targets.SelectedItem);
    var d=Read(DriftFile);var c=Read(CameraFile);string dh=Hash(DriftFile),ch=Hash(CameraFile);
    drift=d;camera=c;driftHash=dh;cameraHash=ch;lastTarget=targets.SelectedIndex;
-   baseDrift=Clone(drift);baseCamera=Clone(camera);dirty=false;save.Enabled=true;RenderTabs();UpdateLocation();
-  }}catch(Exception ex){active=previous;changing=true;targets.SelectedIndex=previousIndex;changing=false;save.Enabled=false;Error(ex);UpdateLocation();}
+   lastMode=ReadEditorMode();changing=true;mode.SelectedIndex=lastMode;changing=false;
+   dirty=false;save.Enabled=true;RenderTabs();UpdateLocation();
+  }}catch(Exception ex){active=previous;lastMode=previousMode;changing=true;targets.SelectedIndex=previousIndex;mode.SelectedIndex=previousMode;changing=false;save.Enabled=false;Error(ex);UpdateLocation();}
  }
  void UpdateLocation(){
   string name=active==""?T("デフォルト","Default"):active;
@@ -111,7 +127,7 @@ class Editor : Form {
    enabled.CheckedChanged+=(s,e)=>{values["enabled"]=enabled.Checked;Changed();};panel.Controls.Add(enabled);
    if(mode.SelectedIndex==1){foreach(var f in fields.Where(f=>f.section==section))AddAdvanced(panel,values,f);}
    else {
-    panel.Controls.Add(new Label{Text=T("50 = 読み込み時の値。関連する項目をまとめて調整します。","50 = values when loaded. Each slider adjusts a related group."),Width=760,Height=35});
+    panel.Controls.Add(new Label{Text=T("50 = 配布時の標準値。保存済みの調整値を表示します。","50 = shipped defaults. Sliders show saved group values."),Width=760,Height=35});
     if(section=="drift"){
      AddSimple(panel,T("旋回力","Cornering"),new[]{"targetYawMax","targetPathSpeed","highSpeedGain","pathAssistLimit"},false);
      AddSimple(panel,T("滑り角・ハンドブレーキ","Slip angle / handbrake"),new[]{"baseSlipRad","slideSlipRad","handbrakeSlipRad","handbrakeTurnGain"},false);
@@ -130,17 +146,44 @@ class Editor : Form {
   track.ValueChanged+=(s,e)=>{if(busy)return;busy=true;double n=f.min+(f.max-f.min)*track.Value/1000;number.Value=(decimal)n;values[f.key]=n;busy=false;Changed();};
   number.ValueChanged+=(s,e)=>{if(busy)return;busy=true;double n=(double)number.Value;track.Value=(int)Math.Round((n-f.min)/(f.max-f.min)*1000);values[f.key]=n;busy=false;Changed();};row.Controls.AddRange(new Control[]{label,track,number});panel.Controls.Add(row);
  }
+ static double SimpleValue(Field f,int position,bool inverse){
+  double t=position/100.0;double factor=inverse?1.6-1.2*t:.7+.6*t;
+  if(f.key=="minDistance")factor=1.25-.5*t;
+  return Math.Max(f.min,Math.Min(f.max,f.value*factor));
+ }
+ int SimplePosition(string[] names,bool inverse){
+  // A group can contain individually edited fields. Find the slider position
+  // that best represents the saved numeric values; clamped fields are harmless.
+  double best=Double.PositiveInfinity;int selected=50;
+  for(int position=0;position<=100;position++){
+   double error=0;
+   foreach(var key in names){
+    var f=fields.First(x=>x.key==key);var source=f.section=="drift"?drift:camera;
+    double current=source.ContainsKey(key)?Convert.ToDouble(source[key],CultureInfo.InvariantCulture):f.value;
+    double scale=Math.Max(.01,Math.Abs(f.value));double difference=(current-SimpleValue(f,position,inverse))/scale;
+    error+=difference*difference;
+   }
+   if(error<best-1e-12||(Math.Abs(error-best)<1e-12&&Math.Abs(position-50)<Math.Abs(selected-50))){best=error;selected=position;}
+  }
+  return selected;
+ }
  void AddSimple(FlowLayoutPanel panel,string title,string[] names,bool inverse){
-  var row=new Panel{Width=780,Height=110};var label=new Label{Text=title,Width=660,Height=24};var val=new Label{Text="50",Left=700,Width=60};var track=new TrackBar{Top=28,Width=740,Minimum=0,Maximum=100,Value=50,TickFrequency=10};
+  int initial=SimplePosition(names,inverse);
+  var row=new Panel{Width=780,Height=110};var label=new Label{Text=title,Width=660,Height=24};var val=new Label{Text=initial.ToString(),Left=700,Width=60};var track=new TrackBar{Top=28,Width=740,Minimum=0,Maximum=100,Value=initial,TickFrequency=10};
   var hint=new Label{Top=78,Width=755,Height=28,Text=String.Join(" / ",fields.Where(f=>names.Contains(f.key)).Select(f=>Japanese?f.ja:f.en).ToArray())};
-  track.ValueChanged+=(s,e)=>{double t=track.Value/100.0;foreach(var key in names){var f=fields.First(x=>x.key==key);var basis=f.section=="drift"?baseDrift:baseCamera;var target=f.section=="drift"?drift:camera;double b=basis.ContainsKey(key)?Convert.ToDouble(basis[key]):f.value;
-    double factor=inverse?1.6-1.2*t:.7+.6*t;if(key=="minDistance")factor=1.25-.5*t;
-    target[key]=Math.Max(f.min,Math.Min(f.max,b*factor));
+  track.ValueChanged+=(s,e)=>{foreach(var key in names){var f=fields.First(x=>x.key==key);var target=f.section=="drift"?drift:camera;
+    target[key]=SimpleValue(f,track.Value,inverse);
    }val.Text=track.Value.ToString();Changed();};row.Controls.AddRange(new Control[]{label,val,track,hint});panel.Controls.Add(row);
  }
  void SaveLanguage(){
   using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
    var p=Path.Combine(root,"settings.json");var settings=File.Exists(p)?Read(p):new Dictionary<string,object>{{"schemaVersion",2}};settings["language"]=language;Atomic(p,Pretty(settings));
+  }
+ }
+ void SaveEditorMode(int selected){
+  using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
+   var ui=new Dictionary<string,object>{{"schemaVersion",1},{"mode",selected==1?"advanced":"simple"}};
+   Atomic(Path.Combine(Folder,"editor_ui.json"),Pretty(ui));
   }
  }
  bool Save(){
@@ -153,7 +196,7 @@ class Editor : Form {
     if(Hash(DriftFile)!=driftHash||Hash(CameraFile)!=cameraHash)throw new IOException(T("別の操作でファイルが変更されました。再読込してください。","Files changed outside this editor. Reload first."));
     string backup=Path.Combine(root,"backups",DateTime.Now.ToString("yyyyMMdd-HHmmss-fff")+"-"+Guid.NewGuid().ToString("N").Substring(0,6));Directory.CreateDirectory(backup);File.WriteAllText(Path.Combine(backup,"target.txt"),DriftFile+"\n"+CameraFile,Encoding.UTF8);File.Copy(DriftFile,Path.Combine(backup,"drift.json"));File.Copy(CameraFile,Path.Combine(backup,"camera.json"));
     try{Atomic(DriftFile,Pretty(drift));Atomic(CameraFile,Pretty(camera));}catch{Atomic(DriftFile,File.ReadAllText(Path.Combine(backup,"drift.json")));Atomic(CameraFile,File.ReadAllText(Path.Combine(backup,"camera.json")));throw;}
-   }driftHash=Hash(DriftFile);cameraHash=Hash(CameraFile);dirty=false;baseDrift=Clone(drift);baseCamera=Clone(camera);RenderTabs();status.Text=T("保存しました。ゲームで Ctrl+D を OFF → ON にしてください。","Saved. Switch Ctrl+D OFF then ON in game.");return true;
+   }driftHash=Hash(DriftFile);cameraHash=Hash(CameraFile);dirty=false;RenderTabs();status.Text=T("保存しました。ゲームで Ctrl+D を OFF → ON にしてください。","Saved. Switch Ctrl+D OFF then ON in game.");return true;
   }catch(Exception ex){Error(ex);return false;}finally{if(Directory.Exists(stage))Directory.Delete(stage,true);}
  }
  static void Check(bool value,string name){if(!value)throw new Exception("TEST FAILED: "+name);}
@@ -168,11 +211,34 @@ class Editor : Form {
   Check(ConfirmDirty()&&!dirty,"save before close succeeds");Check(Convert.ToDouble(Read(DriftFile)["targetYawMax"])==.65,"saved value");
   Check(Directory.GetDirectories(Path.Combine(root,"backups")).Length>0,"backup exists");
   drift["targetYawMax"]=.7;Changed();testDecision=DialogResult.No;Check(ConfirmDirty()&&!dirty,"discard exits without saving");Check(Convert.ToDouble(Read(DriftFile)["targetYawMax"])==.65,"discard leaves file intact");
-  LoadTarget();if(targets.Items.Count>1){targets.SelectedIndex=1;Check(active!=""&&DriftFile.Contains("vehicles"),"vehicle selected separately");targets.SelectedIndex=0;}
+  LoadTarget();if(targets.Items.Count>1){
+   targets.SelectedIndex=1;Check(active!=""&&DriftFile.Contains("vehicles"),"vehicle selected separately");
+   testModeDecision=DialogResult.No;mode.SelectedIndex=1;
+   Check(mode.SelectedIndex==0&&!File.Exists(Path.Combine(Folder,"editor_ui.json")),"cancelled mode switch changes nothing");
+   testModeDecision=DialogResult.Yes;mode.SelectedIndex=1;
+   Check(mode.SelectedIndex==1&&Convert.ToString(Read(Path.Combine(Folder,"editor_ui.json"))["mode"])=="advanced","vehicle mode persisted");
+   targets.SelectedIndex=0;Check(mode.SelectedIndex==0,"default retains separate mode");
+   targets.SelectedIndex=1;Check(mode.SelectedIndex==1,"vehicle mode restored on selection");
+   targets.SelectedIndex=0;
+  }
   mode.SelectedIndex=0;RenderTabs();var driftPanel=(FlowLayoutPanel)tabs.TabPages[0].Controls[0];var cameraPanel=(FlowLayoutPanel)tabs.TabPages[1].Controls[0];
   Check(driftPanel.Controls.OfType<Panel>().Count()==3&&cameraPanel.Controls.OfType<Panel>().Count()==3,"three simple controls per screen");
   var firstTrack=driftPanel.Controls.OfType<Panel>().First().Controls.OfType<TrackBar>().First();double baseYaw=Convert.ToDouble(drift["targetYawMax"]);double cameraBefore=Convert.ToDouble(camera["orbitGain"]);firstTrack.Value=75;
   Check(Convert.ToDouble(drift["targetYawMax"])>baseYaw&&Convert.ToDouble(camera["orbitGain"])==cameraBefore,"drift group modifies only drift");
+  Check(Save(),"simple group save succeeds");
+  Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().First().Controls.OfType<TrackBar>().First().Value==75,"saved simple slider stays at 75");
+  LoadTarget();Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().First().Controls.OfType<TrackBar>().First().Value==75,"reloaded simple slider stays at 75");
+  mode.SelectedIndex=1;mode.SelectedIndex=0;
+  driftPanel=(FlowLayoutPanel)tabs.TabPages[0].Controls[0];
+  Check(driftPanel.Controls.OfType<Panel>().First().Controls.OfType<TrackBar>().First().Value==75,"mode switching preserves saved simple position");
+  Check(Convert.ToString(Read(Path.Combine(root,"editor_ui.json"))["mode"])=="simple","default mode persisted separately");
+  OpenRoot();Check(mode.SelectedIndex==0,"default mode restored after reopen");
+  driftPanel=(FlowLayoutPanel)tabs.TabPages[0].Controls[0];
+  Check(driftPanel.Controls.OfType<Panel>().Count()==3,"simple controls restored after reopen");
+  var speedTrack=driftPanel.Controls.OfType<Panel>().ElementAt(2).Controls.OfType<TrackBar>().First();speedTrack.Value=100;
+  Check(Save(),"clamped simple group saves");LoadTarget();
+  Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().ElementAt(2).Controls.OfType<TrackBar>().First().Value==100,"clamped group restores from its informative field");
+  ((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().First().Controls.OfType<TrackBar>().First().Value=74;
   using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){Check(!Save()&&dirty,"busy lock preserves edits");}
   dirty=false;LoadTarget();
   foreach(string lang in new[]{"ja","en"}){language=lang;Translate();foreach(int m in new[]{0,1}){mode.SelectedIndex=m;RenderTabs();Check(tabs.TabCount==2,"separate drift and camera tabs");if(m==1){Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().Count()==17,"all drift controls");Check(((FlowLayoutPanel)tabs.TabPages[1].Controls[0]).Controls.OfType<Panel>().Count()==20,"all camera controls");}}}

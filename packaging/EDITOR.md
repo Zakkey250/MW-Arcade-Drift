@@ -1,10 +1,10 @@
-# MW Arcade Drift — Optional Editor (0.1.0)
+# MW Arcade Drift — Optional Editor (0.1.1)
 
 Install the Core download first. This optional archive adds only three editor files to scripts/MWArcadeDrift/: Configurator.exe, ConfigCheck.exe and fields.json. It does not contain an ASI, INI, defaults, vehicle profiles, game resources or a loader. Extract into the same game folder; no existing game configuration is replaced.
 
 Run Configurator.exe. Requires Windows .NET Framework 4.x. Keep ConfigCheck.exe and fields.json alongside it: the editor uses them for validation and controls. The game never runs either EXE. No network/download/update functionality is included. Editing and running the game do not require keeping this app open.
 
-Use separate Drift/Camera tabs and Default/vehicle selection. Simple mode has 3 sliders per screen; Advanced exposes the numeric parameters. Unsaved changes are protected by Save/Discard/Cancel, save validation, conflict detection and backups. After saving, toggle Ctrl+D OFF then ON in the game. See EDITOR_CONFIGURATION_EN.md for the full guide.
+Use separate Drift/Camera tabs and Default/vehicle selection. Simple mode has 3 sliders per screen; Advanced exposes the numeric parameters. Simple sliders restore their positions from saved values. The editor warns before switching modes and remembers the mode separately for Default and each vehicle in editor-only `editor_ui.json` files. Unsaved changes are protected by Save/Discard/Cancel, save validation, conflict detection and backups. After saving, toggle Ctrl+D OFF then ON in the game. See EDITOR_CONFIGURATION_EN.md for the full guide.
 
 To remove the optional editor, close it and remove ONLY Configurator.exe, ConfigCheck.exe and fields.json from scripts/MWArcadeDrift/. Leave the JSON settings, vehicles/, backups/ and core files intact. The game continues to use your settings. You can edit them with a text editor and reload with Ctrl+D ON.
 

@@ -1,8 +1,8 @@
-# MW Arcade Drift 0.1.0 — Profile editor
+# MW Arcade Drift 0.1.1 — Profile editor
 
 The editor is an optional separate download. The Core requires no EXE: edit JSON in a text editor, save, then switch Ctrl+D OFF and ON. UI instructions below apply only when the optional editor is installed.
 
-Run `scripts/MWArcadeDrift/Configurator.exe` (.NET Framework 4.x). Choose Default or a vehicle at the top, then use separate Drift and Camera tabs. Each screen has three grouped sliders in Simple mode. Advanced exposes all 17 drift or 20 camera parameters and the corresponding enable switch. A Simple slider at 50 means the values at load; switching mode/language or saving establishes a new baseline.
+Run `scripts/MWArcadeDrift/Configurator.exe` (.NET Framework 4.x). Choose Default or a vehicle at the top, then use separate Drift and Camera tabs. Each screen has three grouped sliders in Simple mode. Advanced exposes all 17 drift or 20 camera parameters and the corresponding enable switch. A Simple slider at 50 means the shipped default values. Its position is restored from the saved numeric values after save, reload, or mode change. Mixed Advanced edits within a group can only be represented approximately by one Simple slider; moving that slider recalculates the whole group from the shipped defaults. A confirmation appears before switching modes. The last editing mode is stored separately for Default and each vehicle in an editor-only `editor_ui.json` file beside that profile's JSON files; the game ignores it.
 
 First entry into a vehicle copies `default_drift.json` and `default_camera.json` to `vehicles/<internal model name>/drift.json` and `camera.json`. Existing files are preserved. Defaults only seed new/missing profiles. Use Reload to refresh the editor vehicle list.
 
