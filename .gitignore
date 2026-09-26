@@ -9,3 +9,4 @@
 *.csv
 *.pdb
 *.user
+/NEXUS_DESCRIPTION_*.md
