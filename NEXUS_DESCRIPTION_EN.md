@@ -1,10 +1,12 @@
 # Short description
 
-Brake-initiated arcade drifting for NFS Most Wanted (2005), with a drift camera, slip indicator, per-car profiles, and an optional editor.
+Brake-initiated arcade drifting for NFS Most Wanted (2005), with an NFS 2015-inspired action camera, slip indicator, per-car profiles, and an optional editor.
 
 # Full description
 
-MW Arcade Drift v0.1.0 adds brake-initiated arcade drifting to NFS Most Wanted (2005). Brake while steering to enter a drift. Use the handbrake for a deeper entry or extra angle mid-drift, then counter-steer and straighten to finish the slide. A smooth drift camera, a green/amber/gray mode indicator, and visible counter-steering complete the effect. RWD vehicles show rear-wheel spin, AWD/4WD vehicles show all-wheel spin, and FWD vehicles retain counter-steering without added wheelspin.
+MW Arcade Drift v0.1.0 adds brake-initiated arcade drifting to NFS Most Wanted (2005). Brake while steering to enter a drift. Use the handbrake for a deeper entry or extra angle mid-drift, then counter-steer and straighten to finish the slide. A green/amber/gray mode indicator and visible counter-steering complete the effect. RWD vehicles show rear-wheel spin, AWD/4WD vehicles show all-wheel spin, and FWD vehicles retain counter-steering without added wheelspin.
+
+**NFS 2015-inspired action camera:** The drift camera brings a more dramatic view to each slide. Enable or disable the camera effect independently in the camera settings; drift handling remains available either way.
 
 **Tuning:** Start with the car's in-game Performance Tuning (Handling). If you still want a different balance, use the optional editor to adjust the default or individual car's drift profile. The game creates a profile on first vehicle entry. Ctrl+D toggles the mode; turning it back ON reloads saved profiles. The editor separates Drift and Camera settings, offers simple and advanced controls, supports English and Japanese, and protects unsaved changes. The Core download works alone and contains no EXE.
 
