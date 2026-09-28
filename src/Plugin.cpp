@@ -17,12 +17,16 @@
 #include <filesystem>
 
 #include "ProfileFiles.h"
+#include "PlayerBodyGate.h"
 
 #include "MessageEncoding.h"
 
 #include "DriftHud.h"
 #include "PresentHud.h"
 #include "PresentHooks.h"
+#include "DriftStateAPI.h"
+#include "Performance.h"
+modperf::Stats perfCapture,perfController,perfHud;
 
 #include <Xinput.h>
 
@@ -140,7 +144,7 @@ bool Hash(char (&out)[65],HMODULE target=nullptr){
 
  HANDLE f=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);if(f==INVALID_HANDLE_VALUE)return false;
 
- LARGE_INTEGER size{};if(!GetFileSizeEx(f,&size)||(!target&&size.QuadPart!=6029312)){CloseHandle(f);return false;}
+ LARGE_INTEGER size{};if(!GetFileSizeEx(f,&size)||(!target&&size.QuadPart!=6029312&&size.QuadPart!=5926912)){CloseHandle(f);return false;}
 
  BCRYPT_ALG_HANDLE alg=nullptr;BCRYPT_HASH_HANDLE h=nullptr;
 
@@ -298,7 +302,7 @@ void SelectVehicle(uint32_t vehicle){
 
 std::atomic<bool> hudFailed{false},hudDrawn{false};
 
-bool DrawCurrentHud(IDirect3DDevice9* d,unsigned mode){mcd::HudTuning cfg;AcquireSRWLockShared(&settingsLock);cfg=hudConfig;ReleaseSRWLockShared(&settingsLock);return mcd::drawPresentHud(d,cfg,mode);}
+bool DrawCurrentHud(IDirect3DDevice9* d,unsigned mode){modperf::Scope measured(perfHud);mcd::HudTuning cfg;AcquireSRWLockShared(&settingsLock);cfg=hudConfig;ReleaseSRWLockShared(&settingsLock);return mcd::drawPresentHud(d,cfg,mode);}
 
 void RenderHud(IDirect3DDevice9* d){
  __try {
@@ -404,6 +408,10 @@ LookAt originalLookAt=nullptr;
 bool CameraCaller(uint32_t caller){
 
  if(caller==0x47dcc1)return true;
+
+ // Every other call site in the game executable is outside the chase camera.
+ // Reject it before querying the loader for the optional external Widescreen Fix.
+ if(caller>=0x400000&&caller<0x890000)return false;
 
  const HMODULE ws=GetModuleHandleW(L"NFSMostWanted.WidescreenFix.asi");if(!ws)return false;
 
@@ -550,9 +558,9 @@ bool Capture(uint32_t primary,float dt,Snapshot& s){
 
  // bodies before scanning the vehicle list (avoid quadratic per-world work).
 
- uint32_t owner=0,candidateVT=0,driverClass=0;
+ if(!mcd::playerBody(primary))return false;
 
- if(!Get(primary+0x34,owner)||owner>UINT32_MAX-0x114||!Get(owner+0x80,candidateVT)||candidateVT!=0x8aa828||!Get(owner+0x114,driverClass)||driverClass!=0)return false;
+ modperf::Scope measured(perfCapture);
 
  if(!Running()){controller.reset();motion.clear();return false;}
 
@@ -682,6 +690,8 @@ void Step(uint32_t primary,float dt,float speedBefore){
 
  Snapshot s{};if(!Capture(primary,dt,s)){if(bodyIdentity==primary+0x48)motion.clear();return;}
 
+ modperf::Scope measured(perfController);
+
  const auto now=GetTickCount64();
 
  const bool newVehicle=identity!=s.vehicle||bodyIdentity!=s.body;
@@ -690,6 +700,7 @@ void Step(uint32_t primary,float dt,float speedBefore){
  if(now-lastSeen>100){visualEnvelope={};frontEnvelope={};cameraEnvelope={};}
 
  lastSeen=now;++steps;
+ static ULONGLONG nextPerf=0;if(now>=nextPerf){nextPerf=now+10000;perfCapture.report("drift_player_capture",Log);perfController.report("drift_player_control",Log);perfHud.report("drift_hud_cpu",Log);}
 
  static DWORD previousPad=5;
 
@@ -729,6 +740,7 @@ void Step(uint32_t primary,float dt,float speedBefore){
  PublishVisual(s,now);
 
  hudMode.store(enabled&&vehicleEnabled&&!observe?(controller.phase==mcd::Phase::Drift?2u:1u):3u);hudTick.store(now);RefreshHud(now);
+ mcdapi::publish(s.vehicle,enabled&&vehicleEnabled&&!observe,controller.phase==mcd::Phase::Drift,now);
 
  if(o.handbrakeEvent)Log("HANDBRAKE_PULSE kind=%s speed=%.3f beta=%.4f steer=%.3f",o.handbrakeEvent==1?"entry":"add",s.s.speed,s.s.beta,s.s.steer);
 
@@ -800,7 +812,7 @@ DWORD WINAPI Initialize(void*){
 
  GetModuleFileNameW(module,ini,MAX_PATH);wchar_t* dot=wcsrchr(ini,L'.');if(!dot)return 0;wcscpy_s(dot,5,L".ini");wcscpy_s(logfile,ini);wcscpy_s(wcsrchr(logfile,L'.'),5,L".log");
 
- Log("MW Arcade Drift 0.1.0 pid=%lu",GetCurrentProcessId());
+ Log("MW Arcade Drift 0.1.1 pid=%lu",GetCurrentProcessId());
 
  if(!GetPrivateProfileIntW(L"Drift",L"Enabled",1,ini)){Log("DISABLED");return 0;}
 
@@ -812,7 +824,7 @@ DWORD WINAPI Initialize(void*){
 
  Log("INPUT_MAPPING source=IInput::GetControls steering=1 gas=5 brake=6 handbrake=7 legacyRTLT=%u",unsigned(independentTriggers));
 
- char hash[65]{};if(!Hash(hash)||(strcmp(hash,"80774c2e5d619b4f120b48d4462896fd504c263399d203a238769cffde1d253c")&&strcmp(hash,"b248271bf8eac8c9b283b8c95e3add672b713bf529b05f1780e58268493b9d06"))||reinterpret_cast<uint32_t>(GetModuleHandleW(nullptr))!=0x400000){Log("REJECTED exe=%s",hash);return 0;}
+ char hash[65]{};if(!Hash(hash)||(strcmp(hash,"80774c2e5d619b4f120b48d4462896fd504c263399d203a238769cffde1d253c")&&strcmp(hash,"b248271bf8eac8c9b283b8c95e3add672b713bf529b05f1780e58268493b9d06")&&strcmp(hash,"0c5675a08cd71fd6d31ca87e992a915054bd8b80d268bff0561d7ecc2067e342"))||reinterpret_cast<uint32_t>(GetModuleHandleW(nullptr))!=0x400000){Log("REJECTED exe=%s",hash);return 0;}
 
  if(!LoadSettings())return 0;
 
@@ -831,7 +843,6 @@ DWORD WINAPI Initialize(void*){
  if(GetPrivateProfileIntW(L"Drift",L"Telemetry",1,ini))telemetry=_wfsopen(csv,L"w",_SH_DENYNO);
 
  if(telemetry){fprintf(telemetry,"ms,enabled,phase,dt,speed_mps,steer,gas,brake,beta_rad,yaw_radps,steering_sign,safe,delta_yaw,delta_direction,native_gas,native_brake,selected_pad,speed_before_step,delta_speed,target_yaw,target_slip,hook_speed_before,native_turn,native_turn_valid,exit_reason,vx,vy,vz,normal_speed,wheels,collision_flags,up_y,handbrake,reference_speed,slide_state,path_assist,recovery_soft,visual_blend,visual_spin,physics_rpm,redline,visual_rpm,gear,handbrake_power,handbrake_window\n");fflush(telemetry);}
-
  if(MH_Initialize()!=MH_OK||MH_CreateHook(reinterpret_cast<void*>(0x6ba510),&Hook,reinterpret_cast<void**>(&original))!=MH_OK||MH_EnableHook(reinterpret_cast<void*>(0x6ba510))!=MH_OK){Log("REJECTED hook installation");if(telemetry){fclose(telemetry);telemetry=nullptr;}return 0;}
 
  if(GetPrivateProfileIntW(L"Presentation",L"Enabled",1,ini)&&!observe){
@@ -877,3 +888,11 @@ DWORD WINAPI Initialize(void*){
 }
 
 BOOL WINAPI DllMain(HINSTANCE h,DWORD reason,LPVOID){if(reason==DLL_PROCESS_ATTACH){module=h;DisableThreadLibraryCalls(h);HANDLE thread=CreateThread(nullptr,0,Initialize,nullptr,0,nullptr);if(thread)CloseHandle(thread);}return TRUE;}
+
+extern "C" BOOL __cdecl MWArcadeDriftGetState(MWArcadeDriftStateV1* out){
+ __try {return !fault.load()&&mcdapi::copy(out);}__except(EXCEPTION_EXECUTE_HANDLER){return FALSE;}
+}
+#pragma comment(linker,"/EXPORT:MWArcadeDriftGetState=_MWArcadeDriftGetState")
+
+
+\n

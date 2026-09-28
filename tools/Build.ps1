@@ -37,3 +37,8 @@ Set-Content "$root\evidence\editor-fixture-path.txt" $fixture
 
 & "$root\bin\PresentTests.exe"
 if($LASTEXITCODE){throw 'HUD dispatch tests failed'}
+
+& $msbuild "$root\MWCriterionDrift.vcxproj" /p:Configuration=Release /p:Platform=Win32 /p:GateTests=true /v:minimal /nologo
+if($LASTEXITCODE){throw 'Player body gate test build failed'}
+& "$root\bin\PlayerBodyGateTests.exe"
+if($LASTEXITCODE){throw 'Player body gate tests failed'}

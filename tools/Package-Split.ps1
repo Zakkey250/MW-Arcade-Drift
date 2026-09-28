@@ -1,4 +1,4 @@
-param([string]$Version='0.1.0')
+param([string]$Version='0.1.1')
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot
 if(Test-Path "$root\release-hold.json"){ $hold=Get-Content "$root\release-hold.json" -Raw | ConvertFrom-Json; if($hold.Active){throw $hold.Reason} }
