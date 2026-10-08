@@ -9,6 +9,7 @@ New-Item -ItemType Directory -Path $app,(Join-Path $stage 'licenses') -Force | O
 foreach($name in @('Configurator.exe','ConfigCheck.exe','fields.json')){Copy-Item -LiteralPath (Join-Path $root "bin\$name") -Destination (Join-Path $app $name)}
 foreach($lang in @('EN','JA')){Copy-Item -LiteralPath (Join-Path $root "CONFIGURATION_$lang.md") -Destination (Join-Path $stage "EDITOR_CONFIGURATION_$lang.md")}
 Copy-Item -LiteralPath (Join-Path $root 'packaging\EDITOR.md') -Destination (Join-Path $stage 'EDITOR_README.md')
+Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $stage 'licenses\MW-Arcade-Drift-MIT.txt')
 Copy-Item -LiteralPath (Join-Path $root 'third_party\nlohmann\LICENSE.MIT') -Destination (Join-Path $stage 'licenses\nlohmann-json.txt')
 if(Get-ChildItem $stage -Recurse -File | Where-Object {$_.Extension -in @('.asi','.dll','.ini')}){throw 'Editor package contains core files'}
 $zip=Join-Path $release "MWArcadeDrift-Editor-$Version.zip"

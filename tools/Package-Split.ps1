@@ -26,6 +26,7 @@ foreach($lang in @('EN','JA')){
 }
 foreach($n in @('Configurator.exe','ConfigCheck.exe','fields.json')){Copy-ReleaseFile "bin\$n" $editor "scripts\MWArcadeDrift\$n"}
 Copy-ReleaseFile 'packaging\EDITOR.md' $editor 'EDITOR_README.md'
+foreach($dir in @($core,$editor)){Copy-ReleaseFile 'LICENSE' $dir 'licenses\MW-Arcade-Drift-MIT.txt'}
 Copy-ReleaseFile 'third_party\minhook\LICENSE.txt' $core 'licenses\MinHook.txt'
 foreach($dir in @($core,$editor)){Copy-ReleaseFile 'third_party\nlohmann\LICENSE.MIT' $dir 'licenses\nlohmann-json.txt'}
 # Allow-listed inputs only. No recursive bin/production folder copying.

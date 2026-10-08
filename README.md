@@ -21,7 +21,11 @@ The previous alpha.4 build had a user drive session with no conspicuous issue; i
 
 ## Building
 
-The native ASI and tests use Visual Studio 2022 C++ x86 tools and the Windows SDK. In PowerShell, run `tools/Build.ps1`, then `tools/Package-Split.ps1` to create separate Core and Editor ZIPs. This repository contains source, defaults and third-party dependency licenses; it contains no game assets or personal save profiles. The original project source has no reuse license specified. Bundled MinHook and nlohmann/json retain their own licenses.
+The native ASI and tests use Visual Studio 2022 C++ x86 tools and the Windows SDK. In PowerShell, run `tools/Build.ps1`, then `tools/Package-Split.ps1` to create separate Core and Editor ZIPs. This repository contains source, defaults and third-party dependency licenses; it contains no game assets or personal save profiles.
+
+## License
+
+Original project code, configuration defaults and documentation are licensed under the [MIT License](LICENSE). Bundled MinHook and nlohmann/json retain their own licenses. The MIT License grants no rights to *Need for Speed* or other third-party material.
 
 ---
 
