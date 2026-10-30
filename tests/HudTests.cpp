@@ -40,7 +40,7 @@ int wmain(int argc,wchar_t** argv){
  Check(SUCCEEDED(api->CreateDevice(0,D3DDEVTYPE_HAL,w,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&pp,&d)),"device creation");
  for(auto dim:{std::pair<UINT,UINT>{1920,1080},{3840,1600},{5120,1440}}){
   pp.BackBufferWidth=dim.first;pp.BackBufferHeight=dim.second;Check(SUCCEEDED(d->Reset(&pp)),"reset without retained resources");
-  for(unsigned active:{1u,2u,3u}){
+  for(unsigned active:{1u,2u,3u,4u,5u}){
    mcd::HudTuning cfg;auto layout=mcd::hudLayout(float(dim.first),float(dim.second),cfg);
    Check(layout.x>=0&&layout.y>=0&&layout.x+layout.size<=dim.first&&layout.y+layout.size<=dim.second,"icon fits aspect");
    d->Clear(0,nullptr,D3DCLEAR_TARGET,D3DCOLOR_XRGB(20,25,32),1,0);Check(SUCCEEDED(d->BeginScene()),"begin scene");

@@ -1,19 +1,19 @@
-# MW Arcade Drift — Optional Editor (0.1.1)
+# MW Arcade Drift Editor 0.2.0
 
-Install the Core download first. This optional archive adds only three editor files to scripts/MWArcadeDrift/: Configurator.exe, ConfigCheck.exe and fields.json. It does not contain an ASI, INI, defaults, vehicle profiles, game resources or a loader. Extract into the same game folder; no existing game configuration is replaced.
+Install MW Arcade Drift 0.2.0 first. This optional archive updates only Configurator.exe, ConfigCheck.exe and fields.json in scripts/MWArcadeDrift/. It contains no ASI, INI, defaults or vehicle profiles.
 
-Run Configurator.exe. Requires Windows .NET Framework 4.x. Keep ConfigCheck.exe and fields.json alongside it: the editor uses them for validation and controls. The game never runs either EXE. No network/download/update functionality is included. Editing and running the game do not require keeping this app open.
+Close the game and editor, then extract scripts into the same game directory. Run Configurator.exe with ConfigCheck.exe and fields.json beside it. Windows .NET Framework 4.x is required. The editor does not need to stay open while playing.
 
-Use separate Drift/Camera tabs and Default/vehicle selection. Simple mode has 3 sliders per screen; Advanced exposes the numeric parameters. Simple sliders restore their positions from saved values. The editor warns before switching modes and remembers the mode separately for Default and each vehicle in editor-only `editor_ui.json` files. Unsaved changes are protected by Save/Discard/Cancel, save validation, conflict detection and backups. After saving, toggle Ctrl+D OFF then ON in the game. See EDITOR_CONFIGURATION_EN.md for the full guide.
+Choose Arcade mode or Special mode, then Default or a vehicle. Drift and Camera have separate tabs. Arcade offers grouped Simple sliders and individual Advanced controls. Special has five percentage controls in both views. Defaults seed new or missing vehicle files; existing per-car settings take precedence. Special race AI uses its own calibration and is not retuned by player Special profiles.
 
-To remove the optional editor, close it and remove ONLY Configurator.exe, ConfigCheck.exe and fields.json from scripts/MWArcadeDrift/. Leave the JSON settings, vehicles/, backups/ and core files intact. The game continues to use your settings. You can edit them with a text editor and reload with Ctrl+D ON.
+Save, then cycle Ctrl+D back to the edited mode in the game. Unsaved changes have Save/Discard/Cancel protection. Save validation, conflict detection and backups protect existing files. See EDITOR_CONFIGURATION_EN.md and EDITOR_RELEASE_NOTES.md.
 
-# 任意の編集アプリ
+To remove the editor, close it and remove only the three editor files. Leave INIs, JSON, vehicles/, modes/ and backups/ intact.
 
-コアを先に導入してください。このZIPは scripts/MWArcadeDrift/ 配下へ上記3ファイルだけを追加します。ASI・INI・デフォルト・車種設定は含まず、既存の設定を上書きしません。同じゲームフォルダーへ展開してください。
+---
 
-.NET Framework 4.xが必要です。Configurator.exeと同じ場所にConfigCheck.exeとfields.jsonを置いてください。これらは編集・保存用で、ゲーム側は起動しません。ネット通信や自動更新機能はありません。
+コア0.2.0を先に導入してください。ゲームと編集アプリを終了してscriptsフォルダーを展開し、3ファイルを更新します。このZIPに本体・INI・標準設定・車種別設定は含まれません。
 
-削除時は編集アプリを閉じ、上記3ファイルだけを削除します。JSON・vehicles/・backups/・コアを残せば、設定とゲーム内機能はそのまま使えます。操作の詳細はEDITOR_CONFIGURATION_JA.mdを参照してください。
+「アーケードモード／スペシャルモード」から編集対象を選び、標準設定または車種別設定を編集します。保存後はゲーム内でCtrl+Dを一周させ、編集したモードへ戻すと反映されます。スペシャルのレースAIは専用調整を使うため、プレイヤー設定の変更は対戦相手へ反映されません。詳しくはEDITOR_CONFIGURATION_JA.mdを参照してください。
 
-Start with the car's in-game Performance Tuning (Handling). Use this optional editor when you need finer drift or camera adjustments. / まずゲーム内のハンドリング調整から始め、足りない場合にこの任意アプリで細かく調整してください。
+削除時はConfigurator.exe、ConfigCheck.exe、fields.jsonだけを削除してください。設定やバックアップを残せば、ゲームはそのまま利用できます。

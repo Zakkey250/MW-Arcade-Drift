@@ -1,4 +1,4 @@
-#include <windows.h>
+﻿#include <windows.h>
 
 #include <bcrypt.h>
 
@@ -17,7 +17,16 @@
 #include <filesystem>
 
 #include "ProfileFiles.h"
+#include "SpecialProfile.h"
+#include "ModeController.h"
+#include "PlayerInputResponse.h"
+#include "ModeHost.h"
 #include "PlayerBodyGate.h"
+#include "NativeTireScope.h"
+#include "NativeDragScope.h"
+#include "NativePadSteering.h"
+#include "NativeDriftSteering.h"
+#include "NativeHandlingAPI.h"
 
 #include "MessageEncoding.h"
 
@@ -51,10 +60,14 @@ namespace {
 HMODULE module;
 
 wchar_t ini[MAX_PATH],logfile[MAX_PATH];
+bool loggingEnabled=false;
 
 FILE* telemetry=nullptr;
 
 mcd::Profile profile;
+mcd::SpecialProfile specialProfile;
+mcd::ModeHost modeHost;
+mcd::PlayerInputResponse playerInput;
 
 mcd::Preferences preferences;
 
@@ -70,15 +83,24 @@ std::atomic<unsigned> hudMode{0};
 
 std::atomic<ULONGLONG> hudTick{0};
 
-mcd::Controller controller;
+mcd::ModeController controller;
 
 mcd::MotionHistory motion;
 
 std::atomic<bool> fault{false};
+std::atomic<bool> nativeHandlingReady{false};
+thread_local uint32_t nativeInputPrimary=0;
+thread_local mcd::NativePadSteering nativePadSteering;
+thread_local mcd::NativeSteeringSample nativeSteeringSample;
+thread_local bool nativeInputHuman=false;
+using NativePlayerSteering=void(__thiscall*)(void*,void*,void*,void*);
+NativePlayerSteering originalPlayerSteering=nullptr;
+
 
 std::atomic_flag busy=ATOMIC_FLAG_INIT;
 
-bool enabled=true,observe=false,independentTriggers=false,autoTriggers=true;
+bool enabled=true,independentTriggers=false,autoTriggers=true;
+std::atomic<bool> observe{false};
 
 mcd::PedalMapping pedals;
 
@@ -130,7 +152,8 @@ using Vec=mcd::Vector;
 
 struct Snapshot {uint32_t vehicle=0,body=0,data=0;Vec velocity{},angular{},forward{},up{};mcd::Sample s;float nativeGas=0,nativeBrake=0;uint32_t wheels=0;unsigned char collisionFlags=0;DWORD pad=4;};
 
-void Log(const char* fmt,...){FILE* f=nullptr;if(_wfopen_s(&f,logfile,L"a")||!f)return;fprintf(f,"[%llu] ",GetTickCount64());va_list a;va_start(a,fmt);vfprintf(f,fmt,a);va_end(a);fputc('\n',f);fclose(f);}
+void Log(const char* fmt,...){if(!loggingEnabled)return;FILE* f=nullptr;if(_wfopen_s(&f,logfile,L"a")||!f)return;fprintf(f,"[%llu] ",GetTickCount64());va_list a;va_start(a,fmt);vfprintf(f,fmt,a);va_end(a);fputc('\n',f);fclose(f);}
+#define Log(...) do { if(loggingEnabled) (Log)(__VA_ARGS__); } while(false)
 
 bool Read(uint32_t p,void* out,size_t n){SIZE_T got=0;return p>=0x10000&&p<=UINT32_MAX-n&&ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(p),out,n,&got)&&got==n;}
 
@@ -216,9 +239,12 @@ bool LoadSettings(){
 
 bool ReloadVehicle(){
 
- try{ProfileFileLock lock;const auto root=ProfileRoot();auto candidate=mcd::loadVehicleProfile(root,selectedName,true);auto prefs=mcd::readPreferences(root);
-
-  profile=candidate;ApplyPreferences(prefs);vehicleEnabled=profile.enabled;controller.tuning=profile.drift;
+ try{ProfileFileLock lock;const auto root=ProfileRoot();auto prefs=mcd::readPreferences(root);
+  if(controller.mode==mcd::DrivingMode::Special){
+   const auto specialRoot=root/L"modes"/L"special";auto candidate=mcd::loadSpecialVehicleProfile(specialRoot,selectedName,true);
+   specialProfile=candidate;vehicleEnabled=candidate.enabled;controller.special.tuning=candidate.drift;
+  }else{auto candidate=mcd::loadVehicleProfile(root,selectedName,true);profile=candidate;vehicleEnabled=candidate.enabled;controller.tuning=candidate.drift;}
+  ApplyPreferences(prefs);
 
   Log("PROFILE_LOADED vehicle=%s enabled=%u",selectedName.c_str(),unsigned(vehicleEnabled));return true;
 
@@ -254,9 +280,9 @@ void TryNotice(){
 
  if(!pendingNotice||!noticeReady)return;const auto now=GetTickCount64();if(now>noticeUntil){pendingNotice=0;return;}if(now-lastNoticeAttempt<150)return;lastNoticeAttempt=now;
 
- const char* en[]={"","Drift mode ON - profile loaded","Drift mode OFF","Profile reload failed - drift OFF","Drift disabled in vehicle profile"};
+ const char* en[]={"","Arcade mode - profile loaded","Normal mode","Profile reload failed - assistance unavailable","Drift disabled in vehicle profile","Special mode - profile loaded","Special mode locked by event"};
 
- const wchar_t* ja[]={L"",L"ドリフトモード ON 設定を反映しました",L"ドリフトモード OFF",L"設定を読み込めません ドリフト OFF",L"車両設定でドリフトが無効です"};
+ const wchar_t* ja[]={L"",L"アーケードモード 設定を反映しました",L"ノーマルモード",L"設定を読み込めません 補正は無効です",L"車両設定でドリフトが無効です",L"スペシャルモード 設定を反映しました",L"イベントの指定でスペシャルモードに固定されています"};
 
  std::string text=en[pendingNotice];
 
@@ -302,7 +328,7 @@ void SelectVehicle(uint32_t vehicle){
 
 std::atomic<bool> hudFailed{false},hudDrawn{false};
 
-bool DrawCurrentHud(IDirect3DDevice9* d,unsigned mode){modperf::Scope measured(perfHud);mcd::HudTuning cfg;AcquireSRWLockShared(&settingsLock);cfg=hudConfig;ReleaseSRWLockShared(&settingsLock);return mcd::drawPresentHud(d,cfg,mode);}
+bool DrawCurrentHud(IDirect3DDevice9* d,unsigned mode){modperf::Scope measured(perfHud,loggingEnabled);mcd::HudTuning cfg;AcquireSRWLockShared(&settingsLock);cfg=hudConfig;ReleaseSRWLockShared(&settingsLock);return mcd::drawPresentHud(d,cfg,mode);}
 
 void RenderHud(IDirect3DDevice9* d){
  __try {
@@ -503,7 +529,7 @@ void PublishVisual(const Snapshot& s,ULONGLONG now){
 
  if(visualVehicle!=s.vehicle||now-lastSeen>100){visualEnvelope={};frontEnvelope={};cameraEnvelope={};visualVehicle=s.vehicle;}
 
- const bool safe=interfaces&&enabled&&vehicleEnabled&&!observe&&s.s.safe&&s.s.dt>0&&s.s.dt<=.05f;
+ const bool safe=interfaces&&enabled&&vehicleEnabled&&!observe&&controller.mode!=mcd::DrivingMode::Special&&s.s.safe&&s.s.dt>0&&s.s.dt<=.05f;
 
  if(!safe){visualEnvelope={};frontEnvelope={};}else {
   // ISuspension=SuspensionRacer+0x4c; mTransInfo data=primary+0xdc.
@@ -528,11 +554,12 @@ void PublishVisual(const Snapshot& s,ULONGLONG now){
 
  }
 
- const bool cameraValid=profile.camera.enabled&&interfaces&&enabled&&vehicleEnabled&&!observe&&s.s.dt>0&&s.s.dt<=.05f;
+ const auto& cameraTuning=controller.mode==mcd::DrivingMode::Special?specialProfile.camera:profile.camera;
+ const bool cameraValid=cameraTuning.enabled&&interfaces&&enabled&&vehicleEnabled&&!observe&&s.s.dt>0&&s.s.dt<=.05f;
 
- cameraEnvelope.tuning=profile.camera;
+ cameraEnvelope.tuning=cameraTuning;
 
- if(cameraValid&&profile.camera.enabled)cameraEnvelope.step(s.s.dt,safe&&controller.phase==mcd::Phase::Drift&&std::abs(s.s.steer)>=.08f,s.s.beta);
+ if(cameraValid&&cameraTuning.enabled)cameraEnvelope.step(s.s.dt,safe&&controller.phase==mcd::Phase::Drift&&std::abs(s.s.steer)>=.08f,s.s.beta);
 
  else cameraEnvelope={};
 
@@ -559,12 +586,14 @@ bool Capture(uint32_t primary,float dt,Snapshot& s){
  // bodies before scanning the vehicle list (avoid quadratic per-world work).
 
  if(!mcd::playerBody(primary))return false;
+ const auto reject=[&](unsigned reason){if(loggingEnabled){static ULONGLONG next=0;const auto now=GetTickCount64();if(now>=next){next=now+5000;Log("PLAYER_CAPTURE_REJECT primary=%08X reason=%u",primary,reason);}}return false;};
 
- modperf::Scope measured(perfCapture);
 
- if(!Running()){controller.reset();motion.clear();return false;}
+ modperf::Scope measured(perfCapture,loggingEnabled);
 
- uint32_t list=0,count=0;if(!Get(0x92cd1c,list)||!Get(0x92cd24,count)||!list||!count||count>256)return false;
+ if(!Running()){controller.reset();motion.clear();return reject(1);}
+
+ uint32_t list=0,count=0;if(!Get(0x92cd1c,list)||!Get(0x92cd24,count)||!list||!count||count>256)return reject(2);
 
  uint32_t players=0;
 
@@ -580,9 +609,9 @@ bool Capture(uint32_t primary,float dt,Snapshot& s){
 
  }
 
- if(players!=1||!s.vehicle)return false;
+ if(players!=1||!s.vehicle)return reject(3);
 
- if(!Method(s.body,9,0x671190)||!Method(s.body,10,0x6711a0)||!Method(s.body,13,0x671270)||!Method(s.body,24,0x696fd0)||!Method(s.body,25,0x696ff0))return false;
+ if(!Method(s.body,9,0x671190)||!Method(s.body,10,0x6711a0)||!Method(s.body,13,0x671270)||!Method(s.body,24,0x696fd0)||!Method(s.body,25,0x696ff0))return reject(4);
 
  uint32_t ref=0,input=0,vt=0,getter=0,wheels=0,collision=0,cr=0,cd=0;unsigned char flags=0;
 
@@ -590,29 +619,29 @@ bool Capture(uint32_t primary,float dt,Snapshot& s){
 
  !Get(s.vehicle+0x84,wheels)||!Get(s.vehicle+0x40,collision)||!Method(collision,17,0x670fb0)||!Get(collision+0x28,cr)||!Get(cr,cd)||!Get(cd+0x1c,flags)||
 
- !Get(s.vehicle+0x3c,input)||!Get(input,vt)||vt<0x890000||vt>=0x8f0000||!Get(vt+8,getter)||getter<0x401000||getter>=0x890000)return false;
+ !Get(s.vehicle+0x3c,input)||!Get(input,vt)||vt<0x890000||vt>=0x8f0000||!Get(vt+8,getter)||getter<0x401000||getter>=0x890000)return reject(5);
 
- unsigned char code[7];uint32_t offset=0;if(!Read(getter,code,7)||code[0]!=0x8d)return false;
+ unsigned char code[7];uint32_t offset=0;if(!Read(getter,code,7)||code[0]!=0x8d)return reject(6);
 
  if(code[1]==0x41&&code[3]==0xc3&&code[2]<0x80)offset=code[2];
 
- else if(code[1]==0x81&&code[6]==0xc3){memcpy(&offset,code+2,4);if(offset>0x200)return false;}else return false;
+ else if(code[1]==0x81&&code[6]==0xc3){memcpy(&offset,code+2,4);if(offset>0x200)return reject(7);}else return reject(8);
 
- float controls[8];if(!Read(input+offset,controls,sizeof(controls)))return false;
+ float controls[8];if(!Read(input+offset,controls,sizeof(controls)))return reject(9);
 
- for(float v:controls)if(!std::isfinite(v)||std::abs(v)>1.01f)return false;
+ for(float v:controls)if(!std::isfinite(v)||std::abs(v)>1.01f)return reject(10);
 
- if(!Finite(s.velocity)||!Finite(s.angular)||!Finite(s.forward)||!Finite(s.up))return false;
+ if(!Finite(s.velocity)||!Finite(s.angular)||!Finite(s.forward)||!Finite(s.up))return reject(11);
 
  const float upLength=mcd::length(s.up);
 
- if(upLength<.95f||upLength>1.05f)return false;
+ if(upLength<.95f||upLength>1.05f)return reject(12);
 
  s.up=mcd::mul(s.up,1.f/upLength);
 
  const float norm=mcd::dot(s.forward,s.forward);
 
- if(norm<.5f||norm>1.1f)return false;
+ if(norm<.5f||norm>1.1f)return reject(13);
 
  s.s.dt=dt;s.s.speed=mcd::length(mcd::tangent(s.velocity,s.up));
 
@@ -632,7 +661,8 @@ bool Capture(uint32_t primary,float dt,Snapshot& s){
 
  XINPUT_STATE state{};DWORD index=4;bool available=false;
 
- const HMODULE provider=GetModuleHandleW(L"NFSMWRumble.asi");
+ const bool padDevice=playerInput.device==mcd::ControlDevice::PadKeyboard;
+ const HMODULE provider=padDevice?GetModuleHandleW(L"NFSMWRumble.asi"):nullptr;
 
  if(provider){
 
@@ -642,7 +672,7 @@ bool Capture(uint32_t primary,float dt,Snapshot& s){
 
   available=selected&&selected(1,&index,&state)==ERROR_SUCCESS&&index<4;
 
- }else if(autoTriggers||independentTriggers){
+ }else if(padDevice&&(autoTriggers||independentTriggers)){
 
   static HMODULE xi=LoadLibraryExW(L"xinput1_4.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
 
@@ -664,7 +694,7 @@ bool Capture(uint32_t primary,float dt,Snapshot& s){
 
  if(independentTriggers&&available)mcd::independentPedals(s.s,true,float(state.Gamepad.bLeftTrigger)/255.f,float(state.Gamepad.bRightTrigger)/255.f);
 
- else if(autoTriggers)pedals.step(s.s,available,float(state.Gamepad.bLeftTrigger)/255.f,float(state.Gamepad.bRightTrigger)/255.f);
+ else if(autoTriggers&&padDevice)pedals.step(s.s,available,float(state.Gamepad.bLeftTrigger)/255.f,float(state.Gamepad.bRightTrigger)/255.f);
 
  if(available&&(autoTriggers||independentTriggers))s.pad=index;
 
@@ -690,32 +720,41 @@ void Step(uint32_t primary,float dt,float speedBefore){
 
  Snapshot s{};if(!Capture(primary,dt,s)){if(bodyIdentity==primary+0x48)motion.clear();return;}
 
- modperf::Scope measured(perfController);
+ modperf::Scope measured(perfController,loggingEnabled);
 
  const auto now=GetTickCount64();
 
  const bool newVehicle=identity!=s.vehicle||bodyIdentity!=s.body;
- if(newVehicle||now-lastSeen>250){visualEnvelope={};frontEnvelope={};cameraEnvelope={};controller.reset(identity==s.vehicle&&bodyIdentity==s.body);identity=s.vehicle;bodyIdentity=s.body;motion.clear();if(newVehicle)SelectVehicle(s.vehicle);}
+ if(newVehicle||now-lastSeen>250){playerInput.reset();visualEnvelope={};frontEnvelope={};cameraEnvelope={};controller.reset(identity==s.vehicle&&bodyIdentity==s.body);identity=s.vehicle;bodyIdentity=s.body;motion.clear();if(newVehicle)SelectVehicle(s.vehicle);}
 
  if(now-lastSeen>100){visualEnvelope={};frontEnvelope={};cameraEnvelope={};}
 
  lastSeen=now;++steps;
- static ULONGLONG nextPerf=0;if(now>=nextPerf){nextPerf=now+10000;perfCapture.report("drift_player_capture",Log);perfController.report("drift_player_control",Log);perfHud.report("drift_hud_cpu",Log);}
+ static ULONGLONG nextPerf=0;if(loggingEnabled&&now>=nextPerf){nextPerf=now+10000;perfCapture.report("drift_player_capture",Log);perfController.report("drift_player_control",Log);perfHud.report("drift_hud_cpu",Log);}
 
  static DWORD previousPad=5;
 
- if(s.pad!=previousPad){controller.reset();motion.clear();previousPad=s.pad;Log("PEDAL_SOURCE %s pad=%lu",s.pad<4?"MappedPadTriggers":"NativeControls",s.pad);}
+ if(s.pad!=previousPad){playerInput.reset();controller.reset();motion.clear();previousPad=s.pad;Log("PEDAL_SOURCE %s pad=%lu",s.pad<4?"MappedPadTriggers":"NativeControls",s.pad);}
 
  DWORD foregroundProcess=0;GetWindowThreadProcessId(GetForegroundWindow(),&foregroundProcess);
  const bool key=foregroundProcess==GetCurrentProcessId()&&(GetAsyncKeyState(VK_CONTROL)&0x8000)&&!(GetAsyncKeyState(VK_SHIFT)&0x8000)&&!(GetAsyncKeyState(VK_MENU)&0x8000)&&(GetAsyncKeyState('D')&0x8000);static bool prior=false;
 
  if(key&&!prior){
-
-  if(enabled&&vehicleEnabled){enabled=false;QueueNotice(2);}else {const bool loaded=ReloadVehicle();enabled=loaded&&vehicleEnabled;QueueNotice(!loaded?3:vehicleEnabled?1:4);}
-
-  controller.reset();motion.clear();cameraEnvelope={};visualEnvelope={};frontEnvelope={};Log("TOGGLE enabled=%u key=Ctrl+D",unsigned(enabled));
-
- }prior=key;GuardedNotice();
+  if(!modeHost.cycle(now))QueueNotice(6);
+  else {
+   const auto next=modeHost.mode(now);controller.select(next);enabled=next!=mcd::DrivingMode::Normal;
+   const bool loaded=!enabled||ReloadVehicle();QueueNotice(!loaded?3:!enabled?2:!vehicleEnabled?4:next==mcd::DrivingMode::Special?5:1);
+   playerInput.reset();controller.reset();motion.clear();cameraEnvelope={};visualEnvelope={};frontEnvelope={};
+   Log("MODE manual=%u effective=%u key=Ctrl+D",unsigned(next),unsigned(next));
+  }
+ }prior=key;
+ const auto effective=modeHost.mode(now);
+ if(controller.mode!=effective){
+  controller.select(effective);enabled=effective!=mcd::DrivingMode::Normal;
+  const bool loaded=!enabled||ReloadVehicle();QueueNotice(!loaded?3:!enabled?2:!vehicleEnabled?4:effective==mcd::DrivingMode::Special?5:1);
+  playerInput.reset();motion.clear();cameraEnvelope={};visualEnvelope={};frontEnvelope={};
+ }
+ GuardedNotice();
 
  const auto before=controller.phase;const float oldSign=controller.sign;
 
@@ -735,12 +774,29 @@ void Step(uint32_t primary,float dt,float speedBefore){
 
  Vec actualVelocity=s.velocity;
 
- mcd::Output o{};if(enabled&&vehicleEnabled)o=controller.step(s.s);else controller.reset();
+ const bool specialDynamics=enabled&&vehicleEnabled&&controller.mode==mcd::DrivingMode::Special;
+ const auto assisted=playerInput.step(s.s,enabled&&vehicleEnabled&&!observe&&controller.mode!=mcd::DrivingMode::Normal);
+ mcd::Output o{};if(enabled&&vehicleEnabled)o=controller.step(assisted,specialDynamics,std::numeric_limits<float>::quiet_NaN(),specialDynamics);else controller.reset();
+ playerInput.apply(o);
+ if(loggingEnabled&&specialDynamics){static ULONGLONG nextSpecialSample=0;if(now>=nextSpecialSample){nextSpecialSample=now+250;Log("SPECIAL_DYNAMICS_SAMPLE body=%08X phase=%u safe=%u speed=%.3f beta=%.5f steer=%.4f gas=%.3f target_slip=%.5f target_turn=%.5f native_turn=%.5f dyaw=%.6f ddir=%.6f assist_steer=%.4f assist_gas=%.3f brake=%.3f brake_weight=%.3f control_device=%u",s.body,unsigned(controller.phase),unsigned(s.s.safe),s.s.speed,s.s.beta,s.s.steer,s.s.gas,o.targetSlip,o.targetYaw,s.s.nativeTurn,o.deltaYaw,o.deltaDirection,assisted.steer,assisted.gas,s.s.brake,playerInput.brakeWeight,unsigned(playerInput.device));}}
 
  PublishVisual(s,now);
 
- hudMode.store(enabled&&vehicleEnabled&&!observe?(controller.phase==mcd::Phase::Drift?2u:1u):3u);hudTick.store(now);RefreshHud(now);
+ // Read-only native wheel evidence. TirePlayer 0069F043 divides the
+ // contact longitudinal speed by radius (+C4) into angular speed (+D0),
+ // and 0069F065 retains that contact speed at +F4. Never use HUD wheel RPM.
+ if(loggingEnabled&&specialDynamics){static ULONGLONG nextWheels=0;if(now>=nextWheels){nextWheels=now+100;
+  uint32_t suspension=0,type=0;float rim[2]{},contact[2]{};bool read=Get(s.vehicle+0x44,suspension)&&Get(suspension,type)&&type==0x8abc30;
+  for(unsigned n=0;n<2&&read;++n){uint32_t wheel=0,axle=0;float radius=0,angular=0;
+   read=Get(suspension-0x4c+0x134+n*4,wheel)&&Get(wheel+0x104,axle)&&axle==1&&Get(wheel+0xc4,radius)&&Get(wheel+0xd0,angular)&&Get(wheel+0xf4,contact[n])&&std::isfinite(radius)&&radius>.1f&&radius<2&&std::isfinite(angular)&&std::isfinite(contact[n]);
+   if(read)rim[n]=radius*angular;
+  }
+  if(read)Log("NATIVE_PLAYER_WHEELS speed=%.4f beta=%.5f gas=%.4f brake=%.4f handbrake=%.4f rim=%.4f,%.4f longitudinal=%.4f,%.4f wheels=%u flags=%u",s.s.speed,s.s.beta,s.s.gas,s.s.brake,s.s.handbrake,rim[0],rim[1],contact[0],contact[1],s.wheels,unsigned(s.collisionFlags));
+ }}
+
+ hudMode.store(enabled&&vehicleEnabled&&!observe?(controller.mode==mcd::DrivingMode::Special?(controller.phase==mcd::Phase::Drift?5u:4u):(controller.phase==mcd::Phase::Drift?2u:1u)):3u);hudTick.store(now);RefreshHud(now);
  mcdapi::publish(s.vehicle,enabled&&vehicleEnabled&&!observe,controller.phase==mcd::Phase::Drift,now);
+ modeHost.publish(now,vehicleEnabled&&!observe&&!fault.load()&&(controller.mode!=mcd::DrivingMode::Special||nativeHandlingReady.load()),controller.mode);
 
  if(o.handbrakeEvent)Log("HANDBRAKE_PULSE kind=%s speed=%.3f beta=%.4f steer=%.3f",o.handbrakeEvent==1?"entry":"add",s.s.speed,s.s.beta,s.s.steer);
 
@@ -752,13 +808,14 @@ void Step(uint32_t primary,float dt,float speedBefore){
 
   // Native setters, verified above, on the integrator's own thread only.
 
-  Vec v=mcd::rotateSurface(s.velocity,s.up,o.deltaDirection,o.deltaSpeed);
+  Vec v=s.velocity;
+  if(o.deltaDirection!=0||o.deltaSpeed!=0)v=mcd::rotateSurface(s.velocity,s.up,o.deltaDirection,o.deltaSpeed);
 
   Vec w=mcd::add(s.angular,mcd::mul(s.up,o.deltaYaw));
 
-  reinterpret_cast<void(__thiscall*)(void*,const Vec*)>(0x696fd0)(reinterpret_cast<void*>(s.body),&v);
+  if(o.deltaDirection!=0||o.deltaSpeed!=0)reinterpret_cast<void(__thiscall*)(void*,const Vec*)>(0x696fd0)(reinterpret_cast<void*>(s.body),&v);
 
-  reinterpret_cast<void(__thiscall*)(void*,const Vec*)>(0x696ff0)(reinterpret_cast<void*>(s.body),&w);++applied;
+  if(o.deltaYaw!=0)reinterpret_cast<void(__thiscall*)(void*,const Vec*)>(0x696ff0)(reinterpret_cast<void*>(s.body),&w);++applied;
 
   actualVelocity=v;
 
@@ -808,15 +865,136 @@ void __fastcall Hook(void* self,void*,float dt){
 
 }
 
+using NativeSuspensionStep=void(__thiscall*)(void*,float);
+NativeSuspensionStep originalSuspension=nullptr;
+NativeSuspensionStep originalPlayerSuspension=nullptr;
+struct NativeDiagnosticStamp {uint32_t primary=0;ULONGLONG next=0;};
+bool NativeDiagnosticDue(NativeDiagnosticStamp (&stamps)[16],uint32_t primary,ULONGLONG now,unsigned interval){
+ // Called only inside loggingEnabled. A shared AI clock always sampled the
+ // first car in the physics list and hid the remaining field's tyre forces.
+ NativeDiagnosticStamp* available=&stamps[0];
+ for(auto& stamp:stamps){
+  if(stamp.primary==primary){if(now<stamp.next)return false;stamp.next=now+interval;return true;}
+  if(stamp.next<available->next)available=&stamp;
+ }
+ *available={primary,now+interval};return true;
+}
+void __fastcall NativePlayerSteeringHook(void* self,void*,void* context,void* left,void* right){
+ // 0069D71B copies native IInput steering to context+8C. The original
+ // 0069FB20 consumes it at 0069FB7C, then computes both front wheel angles.
+ // Restrict the temporary input change to a verified native tyre scope.
+ const auto address=reinterpret_cast<uint32_t>(context);float raw=0,dt=0;
+ // The explicit laboratory PlayerEngineTest already supplies slew-limited
+ // AI inputs. Do not stack the human pad filter on that closed-loop driver.
+ using EngineTest=unsigned(__cdecl*)();static EngineTest engineTest=nullptr;
+ if(!engineTest){if(auto loader=GetModuleHandleW(L"MWEventLoader.asi"))engineTest=reinterpret_cast<EngineTest>(GetProcAddress(loader,"MWEL_PlayerEngineTestV1"));}
+ const bool active=!(nativeInputHuman&&engineTest&&engineTest()==1)&&nativeInputPrimary==reinterpret_cast<uint32_t>(self)&&nativeInputPrimary&&
+  (!nativeInputHuman||playerInput.device==mcd::ControlDevice::PadKeyboard)&&!fault.load()&&
+  Get(address+0x8c,raw)&&Get(address+0xc0,dt)&&std::isfinite(raw)&&std::abs(raw)<=1.01f&&std::isfinite(dt)&&dt>0&&dt<=.05f;
+ float filtered=nativeInputHuman?nativePadSteering.step(nativeInputPrimary,GetTickCount64(),dt,raw,active):raw;
+ float brake=0,handbrake=0;
+ if(active&&Get(address+0x5c,brake)&&Get(address+0x7c,handbrake))
+  filtered=mcd::nativePadDriftSteering(filtered,nativeSteeringSample,brake,handbrake);
+ if(loggingEnabled&&active){static NativeDiagnosticStamp samples[16]{};const unsigned kind=nativeInputHuman?1u:0u;const auto now=GetTickCount64();if(NativeDiagnosticDue(samples,nativeInputPrimary,now,50)){
+  Log("NATIVE_PAD_RESPONSE ms=%llu primary=%08X human=%u requested=%.6f applied=%.6f beta=%.6f yaw=%.6f speed=%.6f safe=%u brake=%.4f handbrake=%.4f",now,nativeInputPrimary,kind,raw,filtered,nativeSteeringSample.beta,nativeSteeringSample.yaw,nativeSteeringSample.speed,unsigned(nativeSteeringSample.safe),brake,handbrake);}}
+ if(!active||filtered==raw){originalPlayerSteering(self,context,left,right);return;}
+ *reinterpret_cast<float*>(address+0x8c)=filtered;
+ __try{originalPlayerSteering(self,context,left,right);}
+ __finally{*reinterpret_cast<float*>(address+0x8c)=raw;}
+ if(loggingEnabled){static ULONGLONG next=0;const auto now=GetTickCount64();if(now>=next){next=now+1000;Log("NATIVE_PAD_STEERING_SAMPLE primary=%08X requested=%.5f applied=%.5f restored=1 dt=%.6f",nativeInputPrimary,raw,filtered,dt);}}
+}
+bool NativeTireRace(uint32_t primary,mcd::SpecialTuning& handling){
+ uint32_t owner=0,vt=0,driver=0;if(!nativeHandlingReady.load()||fault.load()||observe||!Get(primary+0x34,owner)||!owner||!Get(owner+0x80,vt)||vt!=0x8aa828||!Get(owner+0x114,driver))return false;
+ static MWArcadeDriftNativeHandlingV1Fn query=nullptr;
+ if(!query){if(auto ai=GetModuleHandleW(L"MWArcadeDriftAI.asi"))query=reinterpret_cast<MWArcadeDriftNativeHandlingV1Fn>(GetProcAddress(ai,"MWArcadeDriftAI_NativeHandlingV1"));}
+ if(query){MWArcadeDriftNativeHandlingV1 value;const auto owned=query(owner+0x80,&value);
+  if(owned){if(owned!=1||!validNativeHandling(value))return false;
+   handling.frontGripPercent=value.front;handling.rearGripPercent=value.rearDynamic;handling.rearStaticGripPercent=value.rearStatic;handling.rearLateralGripPercent=value.rearLateral;handling.speedLossPercent=value.speedLoss;return true;}}
+ if(driver!=0||!Running()||owner+0x80!=identity||!vehicleEnabled||!enabled||controller.mode!=mcd::DrivingMode::Special)return false;
+ const auto now=GetTickCount64();const auto state=modeHost.state(now);
+ if(!state.ready||state.effectiveMode!=2||now-lastSeen>250)return false;
+ handling=controller.special.tuning;return true;
+}
+void NativeSuspensionCall(void* self,float dt,NativeSuspensionStep nativeStep){
+ mcd::NativeTireScope scope;mcd::NativeDragScope drag;mcd::SpecialTuning handling;const bool eligible=NativeTireRace(reinterpret_cast<uint32_t>(self),handling);
+ // Actual rigid-body speed, never wheel speed: retain launch/recovery grip.
+ uint32_t owner=0,body=0,ref=0,data=0;Vec velocity{};float blend=0;
+ if(eligible&&Get(reinterpret_cast<uint32_t>(self)+0x34,owner)&&Get(owner+0x4c,body)&&Method(body,9,0x671190)&&Get(body+0x30,ref)&&Get(ref,data)&&Get(data+0x20,velocity)&&Finite(velocity))
+  blend=std::clamp((mcd::length(velocity)-5.f)/7.f,0.f,1.f);
+ uint32_t handlingDriver=0;Get(owner+0x114,handlingDriver);
+ const float frontFactor=std::clamp(1.f-(1.f-handling.frontGripPercent*.01f)*blend,.2f,1.f);
+ const float rearFactor=std::clamp(1.f-(1.f-handling.rearGripPercent*.01f)*blend,.2f,1.f);
+ const float lateralFactor=std::clamp(1.f-(1.f-handling.rearLateralGripPercent*.01f)*blend,.1f,1.f);
+ const float rearStaticFactor=std::clamp(1.f-(1.f-handling.rearStaticGripPercent*.01f)*blend,.2f,1.f);
+ const bool tiresApplied=blend>0&&scope.begin(reinterpret_cast<uint32_t>(self),frontFactor,rearFactor,rearStaticFactor,lateralFactor);
+ // The GUI's loss adjustment acts through the native aerodynamic force.
+ // It cannot refund collision/braking energy or rotate a velocity vector.
+ Vec forward{},up{};float dragScale=1;uint32_t driver=0;
+ if(tiresApplied&&Get(data+0x90,forward)&&Get(data+0x80,up)&&Finite(forward)&&Finite(up)&&up.y>.85f&&Get(owner+0x114,driver)){
+  const float speed=mcd::length(velocity),f=mcd::length(forward);
+  if(speed>12&&f>.9f&&f<1.1f){const float alignment=std::clamp(mcd::dot(forward,velocity)/(f*speed),-1.f,1.f);
+   if(alignment>.7f&&alignment<.98f)dragScale=std::clamp(handling.speedLossPercent*.01f,0.f,1.f);
+  }
+ }
+ const bool dragApplied=dragScale<1&&drag.begin(reinterpret_cast<uint32_t>(self),dragScale);
+ const auto previousInputPrimary=nativeInputPrimary;
+ const auto previousInputHuman=nativeInputHuman;
+ const auto previousSteeringSample=nativeSteeringSample;
+ nativeInputPrimary=tiresApplied?reinterpret_cast<uint32_t>(self):0;
+ nativeInputHuman=handlingDriver==0;
+ nativeSteeringSample={};
+ if(nativeInputPrimary){
+  Vec angular{};uint32_t wheels=0,collision=0,cr=0,cd=0;unsigned char flags=0;
+  if(Get(data+0x90,forward)&&Get(data+0x80,up)&&Get(data+0x30,angular)&&Finite(forward)&&Finite(up)&&Finite(angular)&&
+     mcd::length(up)>.95f&&mcd::length(up)<1.05f&&Get(owner+0x104,wheels)&&wheels>=3&&wheels<=4&&
+     Get(owner+0xc0,collision)&&Method(collision,17,0x670fb0)&&Get(collision+0x28,cr)&&Get(cr,cd)&&Get(cd+0x1c,flags)){
+   up=mcd::mul(up,1.f/mcd::length(up));
+   nativeSteeringSample={mcd::length(mcd::tangent(velocity,up)),mcd::surfaceBeta(forward,velocity,up),mcd::dot(angular,up),up.y>.85f&&(flags&12)==0};
+  }
+ }
+ __try{nativeStep(self,dt);}__finally{
+  nativeInputPrimary=previousInputPrimary;
+  nativeInputHuman=previousInputHuman;
+  nativeSteeringSample=previousSteeringSample;
+  const bool dragRestored=drag.restore(),tiresRestored=scope.restore();
+  if(!dragRestored||!tiresRestored){fault.store(true);Log("NATIVE_HANDLING_RESTORE_FAILURE primary=%08X tires=%u drag=%u",reinterpret_cast<uint32_t>(self),unsigned(tiresRestored),unsigned(dragRestored));}
+ }
+ // Read-only TirePlayer evidence, after the native force calculation. Off
+ // bypasses wheel reads and formatting. Offsets are verified in the local
+ // 0069F020 consumer and ISuspension getters, not inferred from TireRacer.
+ if(loggingEnabled&&tiresApplied&&nativeStep==originalPlayerSuspension){
+  static NativeDiagnosticStamp samples[16]{};const auto now=GetTickCount64();const unsigned kind=handlingDriver==0?1u:0u;
+  if(NativeDiagnosticDue(samples,reinterpret_cast<uint32_t>(self),now,50)){
+   for(unsigned n=2;n<4;++n){uint32_t wheel=0;float radius=0,omega=0,lateral=0,longitudinal=0,slip=0;
+    if(Get(reinterpret_cast<uint32_t>(self)+0x12c+n*4,wheel)&&wheel&&Get(wheel+0xc4,radius)&&Get(wheel+0xd0,omega)&&
+       Get(wheel+0xd8,lateral)&&Get(wheel+0xdc,longitudinal)&&Get(wheel+0xe8,slip)&&
+       std::isfinite(radius)&&std::isfinite(omega)&&std::isfinite(lateral)&&std::isfinite(longitudinal)&&std::isfinite(slip))
+     Log("NATIVE_REAR_TIRE ms=%llu primary=%08X human=%u wheel=%u rim_mps=%.5f slip_mps=%.5f force_lateral=%.5f force_drive=%.5f static_factor=%.4f dynamic_factor=%.4f lateral_factor=%.4f",now,reinterpret_cast<uint32_t>(self),kind,n,radius*omega,slip,lateral,longitudinal,rearStaticFactor,rearFactor,lateralFactor);
+   }
+  }
+ }
+ if(loggingEnabled){static ULONGLONG next[2]{};const unsigned kind=nativeStep==originalPlayerSuspension?1u:0u;const auto now=GetTickCount64();if(eligible&&now>=next[kind]){next[kind]=now+1000;Log("NATIVE_TIRE_TRIAL primary=%08X player=%u applied=%u front=%.4f rear=%.4f restored=%u original=%08X drag_applied=%u drag_scale=%.4f drag_restored=%u",reinterpret_cast<uint32_t>(self),kind,unsigned(tiresApplied),frontFactor,rearFactor,unsigned(!scope.changed),scope.original,unsigned(dragApplied),dragScale,unsigned(!drag.changed));}}
+}
+void __fastcall NativeSuspensionHook(void* self,void*,float dt){NativeSuspensionCall(self,dt,originalSuspension);}
+void __fastcall NativePlayerSuspensionHook(void* self,void*,float dt){NativeSuspensionCall(self,dt,originalPlayerSuspension);}
+
 DWORD WINAPI Initialize(void*){
 
  GetModuleFileNameW(module,ini,MAX_PATH);wchar_t* dot=wcsrchr(ini,L'.');if(!dot)return 0;wcscpy_s(dot,5,L".ini");wcscpy_s(logfile,ini);wcscpy_s(wcsrchr(logfile,L'.'),5,L".log");
 
- Log("MW Arcade Drift 0.1.1 pid=%lu",GetCurrentProcessId());
+ wchar_t loggingSetting[8]{};GetPrivateProfileStringW(L"Diagnostics",L"Logging",L"",loggingSetting,8,ini);loggingEnabled=wcscmp(loggingSetting,L"1")==0;
 
- if(!GetPrivateProfileIntW(L"Drift",L"Enabled",1,ini)){Log("DISABLED");return 0;}
+ Log("MW Arcade Drift 0.2.0 pid=%lu",GetCurrentProcessId());
+
+ const bool startEnabled=GetPrivateProfileIntW(L"Drift",L"Enabled",1,ini)!=0;
+ const int initial=startEnabled?GetPrivateProfileIntW(L"Drift",L"InitialMode",1,ini):0;
+ const auto initialMode=mcd::DrivingMode(initial>=0&&initial<=2?initial:1);
+ modeHost.initialize(initialMode);controller.select(initialMode);enabled=initialMode!=mcd::DrivingMode::Normal;
 
  autoTriggers=GetPrivateProfileIntW(L"Input",L"AutoIndependentTriggers",1,ini)!=0;
+ wchar_t controlDevice[32]{};GetPrivateProfileStringW(L"Input",L"ControlDevice",L"PadKeyboard",controlDevice,32,ini);
+ playerInput.device=mcd::ParseControlDevice(controlDevice);
+ Log("INPUT_RESPONSE device=%s steering_rise_ms=120 counter_ms=80 throttle_rise_ms=80 brake_recovery_ms=120",playerInput.device==mcd::ControlDevice::Wheel?"Wheel":"PadKeyboard");
 
  observe=GetPrivateProfileIntW(L"Drift",L"ObserveOnly",0,ini)!=0;
 
@@ -840,10 +1018,25 @@ DWORD WINAPI Initialize(void*){
 
  wchar_t csv[MAX_PATH];wcscpy_s(csv,ini);wcscpy_s(wcsrchr(csv,L'.'),5,L".csv");
 
- if(GetPrivateProfileIntW(L"Drift",L"Telemetry",1,ini))telemetry=_wfsopen(csv,L"w",_SH_DENYNO);
+ if(loggingEnabled&&GetPrivateProfileIntW(L"Drift",L"Telemetry",0,ini)==1)telemetry=_wfsopen(csv,L"w",_SH_DENYNO);
 
  if(telemetry){fprintf(telemetry,"ms,enabled,phase,dt,speed_mps,steer,gas,brake,beta_rad,yaw_radps,steering_sign,safe,delta_yaw,delta_direction,native_gas,native_brake,selected_pad,speed_before_step,delta_speed,target_yaw,target_slip,hook_speed_before,native_turn,native_turn_valid,exit_reason,vx,vy,vz,normal_speed,wheels,collision_flags,up_y,handbrake,reference_speed,slide_state,path_assist,recovery_soft,visual_blend,visual_spin,physics_rpm,redline,visual_rpm,gear,handbrake_power,handbrake_window\n");fflush(telemetry);}
  if(MH_Initialize()!=MH_OK||MH_CreateHook(reinterpret_cast<void*>(0x6ba510),&Hook,reinterpret_cast<void**>(&original))!=MH_OK||MH_EnableHook(reinterpret_cast<void*>(0x6ba510))!=MH_OK){Log("REJECTED hook installation");if(telemetry){fclose(telemetry);telemetry=nullptr;}return 0;}
+
+ const bool racerHandling=Match(0x6b1dd0,"81ecfc000000568bf1")&&Match(0x69dad1,"d9448120d95c2420d9448138")&&
+    MH_CreateHook(reinterpret_cast<void*>(0x6b1dd0),&NativeSuspensionHook,reinterpret_cast<void**>(&originalSuspension))==MH_OK&&
+    MH_EnableHook(reinterpret_cast<void*>(0x6b1dd0))==MH_OK;
+ if(racerHandling)Log("NATIVE_TIRE_READY scoped_layout=1 shared_data_writes=0");
+ else {Log("NATIVE_TIRE_REJECTED native function mismatch or hook conflict");}
+ const bool playerHandling=Match(0x6b2870,"81ece8000000568bf1")&&Match(0x69f2c3,"8baef8000000")&&
+    MH_CreateHook(reinterpret_cast<void*>(0x6b2870),&NativePlayerSuspensionHook,reinterpret_cast<void**>(&originalPlayerSuspension))==MH_OK&&
+    MH_EnableHook(reinterpret_cast<void*>(0x6b2870))==MH_OK;
+ if(playerHandling)Log("NATIVE_PLAYER_TIRE_READY scoped_layout=1 shared_data_writes=0");
+ else {Log("NATIVE_PLAYER_TIRE_REJECTED native function mismatch or hook conflict");}
+ const bool nativeSteering=Match(0x69fb20,"83ec2056578b7c242c")&&Match(0x69fb7c,"d88f8c000000")&&
+  MH_CreateHook(reinterpret_cast<void*>(0x69fb20),&NativePlayerSteeringHook,reinterpret_cast<void**>(&originalPlayerSteering))==MH_OK&&MH_EnableHook(reinterpret_cast<void*>(0x69fb20))==MH_OK;
+ Log("NATIVE_PAD_STEERING ready=%u input_only=1 wheel_bypass=1",unsigned(nativeSteering));
+ nativeHandlingReady.store(racerHandling&&playerHandling&&(nativeSteering||playerInput.device==mcd::ControlDevice::Wheel));
 
  if(GetPrivateProfileIntW(L"Presentation",L"Enabled",1,ini)&&!observe){
 
@@ -881,7 +1074,8 @@ DWORD WINAPI Initialize(void*){
 
  Log("HUD_WAIT waiting for player/device; no game render code patch");
 
- Log("ACTIVE mode=%s hook=006BA510 playerOnly=1 handlingWrites=0; awaiting player samples",observe?"Observe":"Assist");return 0;
+ modeHost.activate();
+ Log("ACTIVE mode=%s hook=006BA510 special_native_handling=%u shared_data_writes=0 special_body_writes=0; awaiting player samples",observe?"Observe":"Assist",unsigned(nativeHandlingReady.load()));return 0;
 
 }
 
@@ -894,5 +1088,19 @@ extern "C" BOOL __cdecl MWArcadeDriftGetState(MWArcadeDriftStateV1* out){
 }
 #pragma comment(linker,"/EXPORT:MWArcadeDriftGetState=_MWArcadeDriftGetState")
 
-
-\n
+extern "C" BOOL __cdecl MWArcadeDriftGetModeV1(MWArcadeDriftModeV1* out){
+ __try{if(!out||out->size!=sizeof(*out)||out->version!=1)return FALSE;auto value=modeHost.state(GetTickCount64());if(fault.load()||!nativeHandlingReady.load()){value.ready=0;value.vehicleReady=0;}*out=value;return TRUE;}
+ __except(EXCEPTION_EXECUTE_HANDLER){return FALSE;}
+}
+extern "C" BOOL __cdecl MWArcadeDriftAcquireSpecialV1(std::uint64_t owner,std::uint32_t ttl,std::uint64_t* token){
+ __try{if(!token)return FALSE;*token=0;if(fault.load()||observe||!nativeHandlingReady.load())return FALSE;auto value=modeHost.acquire(owner,GetTickCount64(),ttl);*token=value;return value?TRUE:FALSE;}
+ __except(EXCEPTION_EXECUTE_HANDLER){return FALSE;}
+}
+extern "C" BOOL __cdecl MWArcadeDriftRenewSpecialV1(std::uint64_t owner,std::uint64_t token,std::uint32_t ttl){return !fault.load()&&!observe&&nativeHandlingReady.load()&&modeHost.renew(owner,token,GetTickCount64(),ttl);}
+extern "C" BOOL __cdecl MWArcadeDriftReleaseSpecialV1(std::uint64_t owner,std::uint64_t token){return modeHost.release(owner,token,GetTickCount64());}
+#pragma comment(linker,"/EXPORT:MWArcadeDriftGetModeV1=_MWArcadeDriftGetModeV1")
+#pragma comment(linker,"/EXPORT:MWArcadeDriftAcquireSpecialV1=_MWArcadeDriftAcquireSpecialV1")
+#pragma comment(linker,"/EXPORT:MWArcadeDriftRenewSpecialV1=_MWArcadeDriftRenewSpecialV1")
+#pragma comment(linker,"/EXPORT:MWArcadeDriftReleaseSpecialV1=_MWArcadeDriftReleaseSpecialV1")
+extern "C" unsigned __cdecl MWArcadeDriftNativeHandlingVersionV1(){return nativeHandlingReady.load()&&!fault.load()?1u:0u;}
+#pragma comment(linker,"/EXPORT:MWArcadeDriftNativeHandlingVersionV1=_MWArcadeDriftNativeHandlingVersionV1")

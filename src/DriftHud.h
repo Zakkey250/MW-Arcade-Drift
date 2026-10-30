@@ -10,6 +10,11 @@ inline HudLayout hudLayout(float width,float height,const HudTuning& c){
  return {std::clamp(width-(c.right+c.size)*scale,0.f,width-size),std::clamp(height-(c.bottom+c.size)*scale,0.f,height-size),size};
 }
 struct HudVertex {float x,y,z,rhw;DWORD color;};
+inline DWORD hudColor(const HudTuning& cfg,unsigned mode){
+ if(mode==4)return D3DCOLOR_ARGB(DWORD(255*cfg.opacity),70,175,255);
+ if(mode==5)return D3DCOLOR_ARGB(DWORD(255*cfg.opacity),210,110,255);
+ return mode==2?D3DCOLOR_ARGB(DWORD(255*cfg.opacity),255,180,40):mode==1?D3DCOLOR_ARGB(DWORD(255*cfg.opacity),65,220,100):D3DCOLOR_ARGB(DWORD(130*cfg.opacity),150,150,150);
+}
 // Original car-and-skid pictogram, no game texture/resource modifications.
 inline std::vector<HudVertex> hudGeometry(HudLayout p,DWORD color){
  const char* glyph[]={
@@ -28,7 +33,7 @@ inline bool drawDriftHud(IDirect3DDevice9* d,const HudTuning& cfg,unsigned mode)
  if(!d||!cfg.enabled||FAILED(d->TestCooperativeLevel()))return false;
  D3DVIEWPORT9 vp{};if(FAILED(d->GetViewport(&vp))||!vp.Width||!vp.Height)return false;
  auto p=hudLayout(float(vp.Width),float(vp.Height),cfg);p.x+=float(vp.X);p.y+=float(vp.Y);
- const auto color=mode==2?D3DCOLOR_ARGB(DWORD(255*cfg.opacity),255,180,40):mode==1?D3DCOLOR_ARGB(DWORD(255*cfg.opacity),65,220,100):D3DCOLOR_ARGB(DWORD(130*cfg.opacity),150,150,150);
+ const auto color=hudColor(cfg,mode);
  auto vertices=hudGeometry(p,color);
  IDirect3DStateBlock9* state=nullptr;
  if(FAILED(d->CreateStateBlock(D3DSBT_ALL,&state))||!state)return false;

@@ -12,6 +12,7 @@ struct Sample {
  float speedBeforeStep=0;
  float nativeTurn=0;
  bool nativeTurnValid=false;
+ bool climbing=false;
  bool safe=false;
 };
 inline void independentPedals(Sample& s,bool selectedPad,float left,float right){
@@ -23,6 +24,7 @@ enum class Phase { Grip, Armed, Drift, Exit };
 struct Output {float deltaYaw=0,deltaDirection=0,deltaSpeed=0,targetYaw=0,targetSlip=0;bool apply=false;unsigned handbrakeEvent=0;};
 struct Controller {
  DriftTuning tuning;
+ bool poweredCounterHold=false;
  Phase phase=Phase::Grip;
  float held=0,elapsed=0,blend=0,direction=0,sign=0,learn=0,vote=0;
  float entrySpeed=0,neutralTime=0,driftBrakeHeld=0,tapGasGrace=0,targetAngle=0,targetTurn=0;
@@ -87,9 +89,13 @@ struct Controller {
    handbrakeWindow=std::max(0.f,handbrakeWindow-s.dt);
   }
   slide=clamp(slide+(1.2f*relative+.2f*s.gas-.4f)*s.dt,.15f,1.f);
-  const float counter=clamp((-relative-.05f)/.6f,0.f,1.f);
+  // Special may hold an established power slide under shallow countersteer.
+  // Full counter, lifting and a slide on the wrong side still unwind it.
+  const float hold=poweredCounterHold&&s.beta*direction>.10f&&s.gas>.5f&&s.brake<.05f?
+   clamp((relative+.65f)/.45f,0.f,1.f)*s.gas:0.f;
+  const float counter=clamp((-relative-.05f)/.6f,0.f,1.f)*(1.f-hold);
   const float requested=direction*(tuning.baseSlipRad+tuning.slideSlipRad*slide+tuning.handbrakeSlipRad*handbrakePower)*(1.f-.85f*counter);
-  const bool transferring=neutral||targetAngle*direction<0||relative<-.1f;
+  const bool transferring=neutral||targetAngle*direction<0||(relative<-.1f&&hold<.5f);
   const float angleRate=transferring?.12f+.10f*counter:.6f;
   targetAngle+=clamp(requested-targetAngle,-angleRate*s.dt,angleRate*s.dt);
   // Unwind the previous slide before asking for opposite path assistance.

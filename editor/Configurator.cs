@@ -9,17 +9,24 @@ using System.Web.Script.Serialization;
 using System.Globalization;
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Reflection;
+
+[assembly: AssemblyTitle("MW Arcade Drift Editor")]
+[assembly: AssemblyProduct("MW Arcade Drift Editor")]
+[assembly: AssemblyVersion("0.2.0.0")]
+[assembly: AssemblyFileVersion("0.2.0.0")]
 
 class Field {
  public string key {get;set;} public string section {get;set;} public string ja {get;set;} public string en {get;set;} public double min {get;set;} public double max {get;set;} public double value {get;set;}
 }
 class Editor : Form {
  static JavaScriptSerializer json=new JavaScriptSerializer();
- string root,language="auto",active="",driftHash,cameraHash;
+ string root,baseRoot,language="auto",active="",driftHash,cameraHash;
+ bool specialFamily;int lastFamily;
  Dictionary<string,object> drift,camera;
- List<Field> fields;bool changing,dirty;int lastTarget,lastMode;
+ List<Field> fields,allFields;bool changing,dirty;int lastTarget,lastMode;
  bool testing; DialogResult testDecision; DialogResult? testModeDecision; string lastError;
- ComboBox targets=new ComboBox(),languages=new ComboBox(),mode=new ComboBox();
+ ComboBox targets=new ComboBox(),languages=new ComboBox(),mode=new ComboBox(),family=new ComboBox();
  TabControl tabs=new TabControl();Label location=new Label(),status=new Label();
  Button save=new Button(),refresh=new Button(),browse=new Button();
  public string T(string ja,string en){return Japanese?ja:en;}
@@ -41,14 +48,23 @@ class Editor : Form {
   try{if(File.Exists(file))File.Replace(tmp,file,null);else File.Move(tmp,file);}finally{if(File.Exists(tmp))File.Delete(tmp);}
  }
  public Editor(string path){
-  root=Path.GetFullPath(path);fields=json.Deserialize<List<Field>>(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fields.json"),Encoding.UTF8));
-  MinimumSize=new Size(880,660);Size=new Size(1060,850);StartPosition=FormStartPosition.CenterScreen;Font=new Font("Yu Gothic UI",10);Text="MW Arcade Drift — Profile Editor";
+  baseRoot=root=Path.GetFullPath(path);allFields=json.Deserialize<List<Field>>(File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fields.json"),Encoding.UTF8));SelectFields();
+  MinimumSize=new Size(1000,660);Size=new Size(1060,850);StartPosition=FormStartPosition.CenterScreen;Font=new Font("Yu Gothic UI",10);Text="MW Arcade Drift — Profile Editor";
   var layout=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=4,ColumnCount=1,Padding=new Padding(16)};
   layout.RowStyles.Add(new RowStyle(SizeType.Absolute,48));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,58));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,70));Controls.Add(layout);
-  var bar=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false};targets.Width=230;mode.Width=155;languages.Width=170;foreach(var c in new[]{targets,mode,languages})c.DropDownStyle=ComboBoxStyle.DropDownList;
-  browse.Width=100;refresh.Width=90;bar.Controls.AddRange(new Control[]{targets,mode,languages,refresh,browse});layout.Controls.Add(bar,0,0);
+  var bar=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false};targets.Width=230;mode.Width=155;languages.Width=170;family.Width=145;foreach(var c in new[]{targets,mode,languages,family})c.DropDownStyle=ComboBoxStyle.DropDownList;
+  browse.Width=100;refresh.Width=90;bar.Controls.AddRange(new Control[]{family,targets,mode,languages,refresh,browse});layout.Controls.Add(bar,0,0);
   location.Dock=DockStyle.Fill;location.AutoEllipsis=true;layout.Controls.Add(location,0,1);tabs.Dock=DockStyle.Fill;layout.Controls.Add(tabs,0,2);
   var footer=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2};footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,170));status.Dock=DockStyle.Fill;save.Dock=DockStyle.Fill;footer.Controls.Add(status,0,0);footer.Controls.Add(save,1,0);layout.Controls.Add(footer,0,3);
+  family.SelectedIndexChanged+=(s,e)=>{
+   if(changing||family.SelectedIndex<0||family.SelectedIndex==lastFamily)return;
+   if(!ConfirmDirty()){changing=true;family.SelectedIndex=lastFamily;changing=false;return;}
+   int previous=lastFamily;string previousRoot=root;
+   specialFamily=family.SelectedIndex==1;root=specialFamily?Path.Combine(baseRoot,"modes","special"):baseRoot;SelectFields();
+   if(OpenRoot())lastFamily=specialFamily?1:0;
+   else{specialFamily=previous==1;root=previousRoot;SelectFields();OpenRoot();}
+   changing=true;family.SelectedIndex=lastFamily;changing=false;
+  };
   targets.SelectedIndexChanged+=(s,e)=>{if(changing)return;if(!ConfirmDirty()){changing=true;targets.SelectedIndex=lastTarget;changing=false;return;}LoadTarget();};
   mode.SelectedIndexChanged+=(s,e)=>{
    if(changing||mode.SelectedIndex<0||mode.SelectedIndex==lastMode)return;
@@ -63,7 +79,7 @@ class Editor : Form {
   };
   languages.SelectedIndexChanged+=(s,e)=>{if(changing)return;language=new[]{"auto","ja","en"}[languages.SelectedIndex];try{SaveLanguage();Translate();RenderTabs();}catch(Exception ex){Error(ex);}};
   tabs.SelectedIndexChanged+=(s,e)=>UpdateLocation();
-  refresh.Click+=(s,e)=>{if(ConfirmDirty())OpenRoot();};browse.Click+=(s,e)=>{if(!ConfirmDirty())return;using(var d=new FolderBrowserDialog()){d.Description=T("MWArcadeDriftフォルダーを選択","Select the MWArcadeDrift folder");d.SelectedPath=root;if(d.ShowDialog()==DialogResult.OK){string previousRoot=root;root=d.SelectedPath;if(!OpenRoot())root=previousRoot;UpdateLocation();}}};save.Click+=(s,e)=>Save();
+  refresh.Click+=(s,e)=>{if(ConfirmDirty())OpenRoot();};browse.Click+=(s,e)=>{if(!ConfirmDirty())return;using(var d=new FolderBrowserDialog()){d.Description=T("MWArcadeDriftフォルダーを選択","Select the MWArcadeDrift folder");d.SelectedPath=root;if(d.ShowDialog()==DialogResult.OK){string previousRoot=root,previousBase=baseRoot;baseRoot=d.SelectedPath;root=specialFamily?Path.Combine(baseRoot,"modes","special"):baseRoot;if(!OpenRoot()){root=previousRoot;baseRoot=previousBase;}UpdateLocation();}}};save.Click+=(s,e)=>Save();
   FormClosing+=(s,e)=>{if(!ConfirmDirty())e.Cancel=true;};OpenRoot();
  }
  void Error(Exception ex){if(testing){lastError=ex.Message;return;}MessageBox.Show(this,T("適用できませんでした。\n","Could not apply changes.\n")+ex.Message,"MW Arcade Drift",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
@@ -79,8 +95,12 @@ class Editor : Form {
   }
  }
  bool ConfirmDirty(){if(!dirty)return true;var r=AskToSave();if(r!=DialogResult.Yes&&r!=DialogResult.No)return false;if(r==DialogResult.Yes)return Save();dirty=false;return true;}
+ void SelectFields(){
+  var specialKeys=new[]{"frontGripPercent","rearGripPercent","rearStaticGripPercent","rearLateralGripPercent","speedLossPercent"};
+  fields=allFields.Where(f=>f.section=="camera"||f.section==(specialFamily?"special":"drift")&&(!specialFamily||specialKeys.Contains(f.key))).Select(f=>new Field{key=f.key,section=f.section=="special"?"drift":f.section,ja=f.ja,en=f.en,min=f.min,max=specialFamily&&f.key=="yawAccelLimit"?6:f.max,value=f.value}).ToList();
+ }
  void Translate(){
-  int mi=mode.Items.Count==0?lastMode:Math.Max(0,mode.SelectedIndex);changing=true;mode.Items.Clear();mode.Items.AddRange(new object[]{T("簡易モード","Simple"),T("アドバンス","Advanced")});mode.SelectedIndex=mi;
+  int mi=mode.Items.Count==0?lastMode:Math.Max(0,mode.SelectedIndex);changing=true;family.Items.Clear();family.Items.AddRange(new object[]{T("アーケードモード","Arcade mode"),T("スペシャルモード","Special mode")});family.SelectedIndex=specialFamily?1:0;mode.Items.Clear();mode.Items.AddRange(new object[]{T("簡易モード","Simple"),T("アドバンス","Advanced")});mode.SelectedIndex=mi;
   languages.Items.Clear();languages.Items.AddRange(new object[]{T("言語: システム自動","Language: System"),"日本語","English"});languages.SelectedIndex=language=="ja"?1:language=="en"?2:0;
   if(targets.Items.Count>0)targets.Items[0]=T("デフォルト（新規車の基準）","Default (template for new cars)");changing=false;
   save.Text=T("変更を保存","Save changes");refresh.Text=T("再読込","Reload");browse.Text=T("場所を選ぶ","Browse");UpdateLocation();
@@ -88,7 +108,7 @@ class Editor : Form {
  bool OpenRoot(){
   try{
    if(!File.Exists(Path.Combine(root,"default_drift.json"))||!File.Exists(Path.Combine(root,"default_camera.json")))throw new IOException(T("default_drift.json と default_camera.json があるフォルダーを選んでください。","Choose a folder containing default_drift.json and default_camera.json."));
-   var prefs=Path.Combine(root,"settings.json");if(File.Exists(prefs)){var p=Read(prefs);language=p.ContainsKey("language")?Convert.ToString(p["language"]):"auto";}
+   var prefs=Path.Combine(baseRoot,"settings.json");if(File.Exists(prefs)){var p=Read(prefs);language=p.ContainsKey("language")?Convert.ToString(p["language"]):"auto";}
    Read(Path.Combine(root,"default_drift.json"));Read(Path.Combine(root,"default_camera.json"));
    changing=true;targets.Items.Clear();targets.Items.Add("Default");var vehicles=Path.Combine(root,"vehicles");if(Directory.Exists(vehicles))foreach(string d in Directory.GetDirectories(vehicles).OrderBy(x=>x)){
     if((File.GetAttributes(d)&FileAttributes.ReparsePoint)==0&&File.Exists(Path.Combine(d,"drift.json"))&&File.Exists(Path.Combine(d,"camera.json")))targets.Items.Add(Path.GetFileName(d));
@@ -104,7 +124,7 @@ class Editor : Form {
  }
  void LoadTarget(){
   string previous=active;int previousIndex=lastTarget,previousMode=lastMode;
-  try{using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
+  try{using(var guard=new FileStream(Path.Combine(baseRoot,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
    active=targets.SelectedIndex<=0?"":Convert.ToString(targets.SelectedItem);
    var d=Read(DriftFile);var c=Read(CameraFile);string dh=Hash(DriftFile),ch=Hash(CameraFile);
    drift=d;camera=c;driftHash=dh;cameraHash=ch;lastTarget=targets.SelectedIndex;
@@ -114,9 +134,9 @@ class Editor : Form {
  }
  void UpdateLocation(){
   string name=active==""?T("デフォルト","Default"):active;
-  Text=(dirty?"* ":"")+"MW Arcade Drift — "+name;
+  Text=(dirty?"* ":"")+"MW Arcade Drift Editor 0.2.0 — "+(specialFamily?T("スペシャルモード","Special mode"):T("アーケードモード","Arcade mode"))+" — "+name;
   location.Text=T("編集中: ","Editing: ")+name+"  /  "+(tabs.SelectedIndex==1?T("カメラ","Camera"):T("ドリフト","Drift"))+"\n"+(tabs.SelectedIndex==1?CameraFile:DriftFile);
-  status.Text=(dirty?T("未保存の変更があります。\n","Unsaved changes.\n"):"")+T("保存後、ゲームで Ctrl+D を OFF → ON にして反映。\nデフォルトの変更は、作成済みの車種別設定を上書きしません。","After saving, switch Ctrl+D OFF then ON in game to apply.\nChanging defaults does not overwrite existing vehicle profiles.");
+  status.Text=(dirty?T("未保存の変更があります。\n","Unsaved changes.\n"):"")+T("保存後、ゲームで Ctrl+D で一周して対象モードへ戻して反映。\nデフォルトの変更は、作成済みの車種別設定を上書きしません。","After saving, cycle Ctrl+D back to the selected mode to apply.\nChanging defaults does not overwrite existing vehicle profiles.");
  }
  void Changed(){dirty=true;UpdateLocation();}
  void RenderTabs(){
@@ -127,8 +147,15 @@ class Editor : Form {
    enabled.CheckedChanged+=(s,e)=>{values["enabled"]=enabled.Checked;Changed();};panel.Controls.Add(enabled);
    if(mode.SelectedIndex==1){foreach(var f in fields.Where(f=>f.section==section))AddAdvanced(panel,values,f);}
    else {
-    panel.Controls.Add(new Label{Text=T("50 = 配布時の標準値。保存済みの調整値を表示します。","50 = shipped defaults. Sliders show saved group values."),Width=760,Height=35});
-    if(section=="drift"){
+    panel.Controls.Add(new Label{Text=specialFamily?T("純正性能に対する割合。車種ごとの保存済み設定を表示します。","Percentages of original handling. Shows saved settings for this car."):T("50 = 配布時の標準値。保存済みの調整値を表示します。","50 = shipped defaults. Sliders show saved group values."),Width=760,Height=35});
+    if(section=="drift"&&specialFamily){
+     AddAdvanced(panel,drift,fields.First(f=>f.key=="frontGripPercent"));
+     AddAdvanced(panel,drift,fields.First(f=>f.key=="rearGripPercent"));
+     AddAdvanced(panel,drift,fields.First(f=>f.key=="rearStaticGripPercent"));
+     AddAdvanced(panel,drift,fields.First(f=>f.key=="rearLateralGripPercent"));
+     AddAdvanced(panel,drift,fields.First(f=>f.key=="speedLossPercent"));
+     panel.Controls.Add(new Label{Width=760,Height=70,Text=T("前後グリップは純正タイヤ性能に対する割合です。小さいほど滑りやすくなります。\n速度減衰は横滑り中の空気抵抗です。100%で純正、0%で空気抵抗なし。\nタイヤ・ブレーキ・接触による減速は残ります。車種ごとに保存できます。", "Grip is a percentage of the original tyre values; lower values allow more slip.\nDrag applies while sliding: 100% is stock, 0% removes aerodynamic drag.\nTyre friction, braking and impact losses remain. Save separately for each car.")});
+    }else if(section=="drift"){
      AddSimple(panel,T("旋回力","Cornering"),new[]{"targetYawMax","targetPathSpeed","highSpeedGain","pathAssistLimit"},false);
      AddSimple(panel,T("滑り角・ハンドブレーキ","Slip angle / handbrake"),new[]{"baseSlipRad","slideSlipRad","handbrakeSlipRad","handbrakeTurnGain"},false);
      AddSimple(panel,T("速度維持","Speed retention"),new[]{"refundFraction","recoveryAccel","refundMaxAccel"},false);
@@ -141,13 +168,15 @@ class Editor : Form {
   }tabs.SelectedIndex=index>1?0:index;tabs.ResumeLayout();UpdateLocation();
  }
  void AddAdvanced(FlowLayoutPanel panel,Dictionary<string,object> values,Field f){
-  var row=new Panel{Width=780,Height=68};var label=new Label{Text=Japanese?f.ja:f.en,Left=0,Top=0,Width=410,Height=24};var track=new TrackBar{Left=0,Top=24,Width=620,Height=40,Minimum=0,Maximum=1000,TickStyle=TickStyle.None};var number=new NumericUpDown{Left=635,Top=26,Width=120,DecimalPlaces=4,Minimum=(decimal)f.min,Maximum=(decimal)f.max,Increment=.001m};
+  var row=new Panel{Width=780,Height=68,Name=f.key};var label=new Label{Text=Japanese?f.ja:f.en,Left=0,Top=0,Width=600,Height=24};var track=new TrackBar{Left=0,Top=24,Width=620,Height=40,Minimum=0,Maximum=1000,TickStyle=TickStyle.None};var number=new NumericUpDown{Left=635,Top=26,Width=120,DecimalPlaces=f.key=="speedLossPercent"?1:4,Minimum=(decimal)f.min,Maximum=(decimal)f.max,Increment=f.key=="speedLossPercent"?1m:.001m};
   double value=values.ContainsKey(f.key)?Convert.ToDouble(values[f.key],CultureInfo.InvariantCulture):f.value;value=Math.Max(f.min,Math.Min(f.max,value));bool busy=false;number.Value=(decimal)value;track.Value=(int)Math.Round((value-f.min)/(f.max-f.min)*1000);
   track.ValueChanged+=(s,e)=>{if(busy)return;busy=true;double n=f.min+(f.max-f.min)*track.Value/1000;number.Value=(decimal)n;values[f.key]=n;busy=false;Changed();};
   number.ValueChanged+=(s,e)=>{if(busy)return;busy=true;double n=(double)number.Value;track.Value=(int)Math.Round((n-f.min)/(f.max-f.min)*1000);values[f.key]=n;busy=false;Changed();};row.Controls.AddRange(new Control[]{label,track,number});panel.Controls.Add(row);
  }
- static double SimpleValue(Field f,int position,bool inverse){
+ double SimpleValue(Field f,int position,bool inverse){
   double t=position/100.0;double factor=inverse?1.6-1.2*t:.7+.6*t;
+  // Keep the combined special slip within the native validator's .65 rad cap.
+  if(specialFamily&&(f.key=="baseSlipRad"||f.key=="slideSlipRad"||f.key=="handbrakeSlipRad"))factor=t<=.5?.5+t:1+(t-.5)*.48;
   if(f.key=="minDistance")factor=1.25-.5*t;
   return Math.Max(f.min,Math.Min(f.max,f.value*factor));
  }
@@ -176,12 +205,12 @@ class Editor : Form {
    }val.Text=track.Value.ToString();Changed();};row.Controls.AddRange(new Control[]{label,val,track,hint});panel.Controls.Add(row);
  }
  void SaveLanguage(){
-  using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
-   var p=Path.Combine(root,"settings.json");var settings=File.Exists(p)?Read(p):new Dictionary<string,object>{{"schemaVersion",2}};settings["language"]=language;Atomic(p,Pretty(settings));
+  using(var guard=new FileStream(Path.Combine(baseRoot,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
+   var p=Path.Combine(baseRoot,"settings.json");var settings=File.Exists(p)?Read(p):new Dictionary<string,object>{{"schemaVersion",2}};settings["language"]=language;Atomic(p,Pretty(settings));
   }
  }
  void SaveEditorMode(int selected){
-  using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
+  using(var guard=new FileStream(Path.Combine(baseRoot,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
    var ui=new Dictionary<string,object>{{"schemaVersion",1},{"mode",selected==1?"advanced":"simple"}};
    Atomic(Path.Combine(Folder,"editor_ui.json"),Pretty(ui));
   }
@@ -190,13 +219,13 @@ class Editor : Form {
   string stage=Path.Combine(Path.GetTempPath(),"MWArcadeDrift-"+Guid.NewGuid().ToString("N"));
   try{
    Directory.CreateDirectory(stage);File.WriteAllText(Path.Combine(stage,"drift.json"),Pretty(drift),new UTF8Encoding(false));File.WriteAllText(Path.Combine(stage,"camera.json"),Pretty(camera),new UTF8Encoding(false));
-   var checker=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ConfigCheck.exe");var start=new ProcessStartInfo(checker,"\""+stage+"\""){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true};
+   var checker=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ConfigCheck.exe");var start=new ProcessStartInfo(checker,(specialFamily?"--special ":"")+"\""+stage+"\""){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true};
    using(var p=Process.Start(start)){string result=p.StandardOutput.ReadToEnd();p.WaitForExit();if(p.ExitCode!=0)throw new InvalidDataException(result);}
-   using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
+   using(var guard=new FileStream(Path.Combine(baseRoot,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
     if(Hash(DriftFile)!=driftHash||Hash(CameraFile)!=cameraHash)throw new IOException(T("別の操作でファイルが変更されました。再読込してください。","Files changed outside this editor. Reload first."));
     string backup=Path.Combine(root,"backups",DateTime.Now.ToString("yyyyMMdd-HHmmss-fff")+"-"+Guid.NewGuid().ToString("N").Substring(0,6));Directory.CreateDirectory(backup);File.WriteAllText(Path.Combine(backup,"target.txt"),DriftFile+"\n"+CameraFile,Encoding.UTF8);File.Copy(DriftFile,Path.Combine(backup,"drift.json"));File.Copy(CameraFile,Path.Combine(backup,"camera.json"));
     try{Atomic(DriftFile,Pretty(drift));Atomic(CameraFile,Pretty(camera));}catch{Atomic(DriftFile,File.ReadAllText(Path.Combine(backup,"drift.json")));Atomic(CameraFile,File.ReadAllText(Path.Combine(backup,"camera.json")));throw;}
-   }driftHash=Hash(DriftFile);cameraHash=Hash(CameraFile);dirty=false;RenderTabs();status.Text=T("保存しました。ゲームで Ctrl+D を OFF → ON にしてください。","Saved. Switch Ctrl+D OFF then ON in game.");return true;
+   }driftHash=Hash(DriftFile);cameraHash=Hash(CameraFile);dirty=false;RenderTabs();status.Text=T("保存しました。ゲームで Ctrl+D で一周して対象モードへ戻してください。","Saved. Cycle Ctrl+D back to the selected mode in game.");return true;
   }catch(Exception ex){Error(ex);return false;}finally{if(Directory.Exists(stage))Directory.Delete(stage,true);}
  }
  static void Check(bool value,string name){if(!value)throw new Exception("TEST FAILED: "+name);}
@@ -239,14 +268,41 @@ class Editor : Form {
   Check(Save(),"clamped simple group saves");LoadTarget();
   Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().ElementAt(2).Controls.OfType<TrackBar>().First().Value==100,"clamped group restores from its informative field");
   ((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().First().Controls.OfType<TrackBar>().First().Value=74;
-  using(var guard=new FileStream(Path.Combine(root,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){Check(!Save()&&dirty,"busy lock preserves edits");}
+  using(var guard=new FileStream(Path.Combine(baseRoot,"profiles.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){Check(!Save()&&dirty,"busy lock preserves edits");}
   dirty=false;LoadTarget();
-  foreach(string lang in new[]{"ja","en"}){language=lang;Translate();foreach(int m in new[]{0,1}){mode.SelectedIndex=m;RenderTabs();Check(tabs.TabCount==2,"separate drift and camera tabs");if(m==1){Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().Count()==17,"all drift controls");Check(((FlowLayoutPanel)tabs.TabPages[1].Controls[0]).Controls.OfType<Panel>().Count()==20,"all camera controls");}}}
-  dirty=false;File.WriteAllText(Path.Combine(root,"editor-test-result.txt"),"PASS close cancel, target cancel, invalid save, external conflict, save, backup, discard, target selection, localized tabs, simple groups, all advanced fields, shared lock",Encoding.UTF8);
+  foreach(string lang in new[]{"ja","en"}){language=lang;Translate();foreach(int m in new[]{0,1}){mode.SelectedIndex=m;RenderTabs();Check(tabs.TabCount==2,"separate drift and camera tabs");if(m==1){Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().Count()==(specialFamily?4:17),"all drift controls");Check(((FlowLayoutPanel)tabs.TabPages[1].Controls[0]).Controls.OfType<Panel>().Count()==20,"all camera controls");}}}
+  dirty=false;var arcadePath=DriftFile;var arcadeBytes=File.ReadAllText(arcadePath);
+  family.SelectedIndex=1;Check(specialFamily&&root==Path.Combine(baseRoot,"modes","special"),"special family selected independently");
+  drift["baseSlipRad"]=.23;Changed();testDecision=DialogResult.Cancel;family.SelectedIndex=0;
+  Check(specialFamily&&family.SelectedIndex==1&&dirty,"family cancel preserves special edits");
+  testDecision=DialogResult.Yes;family.SelectedIndex=0;
+  Check(!specialFamily&&Convert.ToDouble(Read(Path.Combine(baseRoot,"modes","special","default_drift.json"))["baseSlipRad"])==.23,"family switch saves special with native validation");
+  Check(File.ReadAllText(arcadePath)==arcadeBytes,"special save cannot modify arcade profile");
+  family.SelectedIndex=1;mode.SelectedIndex=1;RenderTabs();Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().Count()==5,"all special controls");
+  mode.SelectedIndex=0;RenderTabs();
+  ((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().First().Controls.OfType<TrackBar>().First().Value=100;
+  Check(Save(),"native front grip maximum saves");LoadTarget();
+  Check(((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().First().Controls.OfType<TrackBar>().First().Value==100,"native front grip maximum restores");
+  Check(File.ReadAllText(arcadePath)==arcadeBytes,"special simple save leaves arcade unchanged");
+  var defaultSpecialPath=DriftFile;var defaultSpecialBytes=File.ReadAllText(defaultSpecialPath);
+  var specialVehicle=Path.Combine(root,"vehicles","SPEED_TEST");Directory.CreateDirectory(specialVehicle);
+  var olderProfile=Read(defaultSpecialPath);olderProfile.Remove("speedLossPercent");
+  File.WriteAllText(Path.Combine(specialVehicle,"drift.json"),Pretty(olderProfile));File.Copy(CameraFile,Path.Combine(specialVehicle,"camera.json"));
+  OpenRoot();targets.SelectedItem="SPEED_TEST";mode.SelectedIndex=0;RenderTabs();
+  var speedRow=((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().Single(r=>r.Name=="speedLossPercent");
+  var speedNumber=speedRow.Controls.OfType<NumericUpDown>().Single();
+  Check(speedNumber.Value==50&&!dirty,"missing speed setting displays runtime default without modifying file");
+  speedNumber.Value=73;Check(Save(),"per-car speed setting saves with native validation");LoadTarget();
+  Check(Convert.ToDouble(drift["speedLossPercent"])==73,"per-car speed setting reloads");
+  Check(File.ReadAllText(defaultSpecialPath)==defaultSpecialBytes&&File.ReadAllText(arcadePath)==arcadeBytes,"per-car speed preserves default and arcade settings");
+  drift["speedLossPercent"]=101;Changed();Check(!Save()&&dirty,"out of range speed rejected without losing edits");
+  dirty=false;LoadTarget();
+  family.SelectedIndex=0;dirty=false;File.WriteAllText(Path.Combine(root,"editor-test-result.txt"),"PASS close cancel, target cancel, invalid save, external conflict, save, backup, discard, target selection, localized tabs, simple groups, all advanced fields, shared lock, special family isolation, family save/cancel, special simple maximum",Encoding.UTF8);
  }
  public void Preview(string folder){
+  testing=true;testModeDecision=DialogResult.Yes;testDecision=DialogResult.No;
   Directory.CreateDirectory(folder);ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;Location=new Point(-20000,-20000);Show();Application.DoEvents();
-  foreach(string lang in new[]{"ja","en"})foreach(int m in new[]{0,1}){language=lang;Translate();mode.SelectedIndex=m;RenderTabs();for(int tab=0;tab<2;tab++){tabs.SelectedIndex=tab;Application.DoEvents();using(var b=new Bitmap(Width,Height)){DrawToBitmap(b,new Rectangle(0,0,Width,Height));b.Save(Path.Combine(folder,lang+"-"+m+"-"+tab+".png"));}}}
+  foreach(int f in new[]{0,1}){family.SelectedIndex=f;foreach(string lang in new[]{"ja","en"})foreach(int m in new[]{0,1}){language=lang;Translate();mode.SelectedIndex=m;RenderTabs();for(int tab=0;tab<2;tab++){tabs.SelectedIndex=tab;Application.DoEvents();using(var b=new Bitmap(Width,Height)){DrawToBitmap(b,new Rectangle(0,0,Width,Height));b.Save(Path.Combine(folder,(f==1?"special-":"")+lang+"-"+m+"-"+tab+".png"));}}}}
   dirty=false;Close();
  }
  [STAThread]static void Main(string[] args){

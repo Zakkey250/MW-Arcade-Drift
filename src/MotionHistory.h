@@ -16,6 +16,7 @@ struct MotionHistory {
  }
  void sample(Sample& s,uint32_t currentBody,uint64_t now,float vx,float vy,float vz,float normalSpeed=0,float nx=0,float ny=1,float nz=0){
   s.speedBeforeStep=0;s.nativeTurn=0;s.nativeTurnValid=false;
+  s.climbing=vy>std::max(0.f,s.speed*.02f);
   if(!valid||body!=currentBody||now<tick||now-tick>100||!usable(s,normalSpeed)||
      !std::isfinite(vx)||!std::isfinite(vy)||!std::isfinite(vz)||std::abs(normalSpeed-normal)>.3f)return;
   Vector n{nx,ny,nz};auto previous=tangent(Vector{x,y,z},n),current=tangent(Vector{vx,vy,vz},n);

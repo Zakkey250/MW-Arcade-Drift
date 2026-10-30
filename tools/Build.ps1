@@ -27,6 +27,7 @@ $fixture=Join-Path $root ('evidence\editor-'+(Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Path "$fixture\vehicles\SVJ" -Force | Out-Null
 Copy-Item "$root\config\default_*.json" $fixture
 Copy-Item "$root\config\settings.json" $fixture
+Copy-Item "$root\config\modes" "$fixture\modes" -Recurse
 Copy-Item "$root\config\default_drift.json" "$fixture\vehicles\SVJ\drift.json"
 Copy-Item "$root\config\default_camera.json" "$fixture\vehicles\SVJ\camera.json"
 $p=Start-Process "$root\bin\Configurator.exe" -ArgumentList @(('"'+$fixture+'"'),'--self-test') -WindowStyle Hidden -PassThru
@@ -42,3 +43,6 @@ if($LASTEXITCODE){throw 'HUD dispatch tests failed'}
 if($LASTEXITCODE){throw 'Player body gate test build failed'}
 & "$root\bin\PlayerBodyGateTests.exe"
 if($LASTEXITCODE){throw 'Player body gate tests failed'}
+& "$PSScriptRoot\Smoke-Reject.ps1" -LibraryPath "$root\bin\MWArcadeDrift.asi"
+if($LASTEXITCODE){throw 'Core ABI tests failed'}
+& "$root\ai\Build.ps1"

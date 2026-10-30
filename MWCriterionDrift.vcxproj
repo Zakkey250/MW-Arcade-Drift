@@ -16,6 +16,3 @@
  <ItemGroup Condition="'$(GateTests)'=='true'"><ClCompile Include="tests\PlayerBodyGateTests.cpp"/></ItemGroup>
  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
-
-
-\n

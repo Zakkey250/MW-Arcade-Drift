@@ -1,26 +1,27 @@
 param([string]$LibraryPath)
 $ErrorActionPreference='Stop'
-if([IntPtr]::Size -ne 4){throw 'Run using Windows SysWOW64 WindowsPowerShell (32-bit).'}
 $root=Split-Path $PSScriptRoot
-$dll=if($LibraryPath){(Resolve-Path -LiteralPath $LibraryPath).Path}else{Join-Path $root 'bin\MWArcadeDrift.asi'}
-$log=[IO.Path]::ChangeExtension($dll,'.log')
-$before=if(Test-Path $log){(Get-Item $log).Length}else{0}
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class DriftLoadProbe {
- [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] public static extern IntPtr LoadLibraryW(string name);
-}
-'@
-$module=[DriftLoadProbe]::LoadLibraryW($dll)
-if($module -eq [IntPtr]::Zero){throw "Load failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"}
-$success=$false
-for($n=0;$n -lt 50;$n++){
- Start-Sleep -Milliseconds 100
- if((Test-Path $log) -and (Get-Item $log).Length -gt $before){
-  $tail=(Get-Content $log -Raw).Substring([int]$before)
-  if($tail -match 'REJECTED exe='){$success=$true;break}
+$dll=if($LibraryPath){(Resolve-Path -LiteralPath $LibraryPath).ProviderPath}else{Join-Path $root 'bin\MWArcadeDrift.asi'}
+$evidence=Join-Path $root ('evidence\mode-abi-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+New-Item -ItemType Directory -Path $evidence | Out-Null
+$probe=Join-Path $evidence 'NativeModeSmoke.exe'
+& "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /platform:x86 /target:exe "/out:$probe" "$root\tests\NativeModeSmoke.cs"
+if($LASTEXITCODE){throw 'Native mode ABI probe build failed'}
+foreach($setting in @('off','missing','invalid','on')){
+ $directory=Join-Path $evidence $setting;New-Item -ItemType Directory -Path $directory | Out-Null
+ $copy=Join-Path $directory 'MWArcadeDrift.asi';Copy-Item -LiteralPath $dll -Destination $copy
+ $logging=if($setting -eq 'missing'){''}elseif($setting -eq 'invalid'){"Logging=invalid`r`n"}elseif($setting -eq 'on'){"Logging=1`r`n"}else{"Logging=0`r`n"}
+ [IO.File]::WriteAllText((Join-Path $directory 'MWArcadeDrift.ini'),"[Diagnostics]`r`n${logging}[Drift]`r`nEnabled=1`r`nTelemetry=1`r`n",[Text.UTF8Encoding]::new($false))
+ $stdout=Join-Path $directory 'result.txt';$stderr=Join-Path $directory 'error.txt'
+ $process=Start-Process -FilePath $probe -ArgumentList @(('"'+$copy+'"'),$setting) -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+ if(!$process.WaitForExit(15000)){
+  $owned=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+  if($owned -and $owned.Path -eq $probe -and $owned.StartTime -eq $process.StartTime){Stop-Process -Id $owned.Id}
+  throw 'ABI test timeout'
  }
+ Get-Content -LiteralPath $stdout
+ Write-Output "PASS diagnostics configuration case=$setting"
+ if($process.ExitCode){Get-Content -LiteralPath $stderr;throw 'Native mode ABI test failed'}
 }
-if(-not $success){throw 'Expected wrong-host rejection not observed.'}
-Write-Output 'PASS x86 ASI loads and rejects unsupported host before physics hook installation.'
+Set-Content -LiteralPath "$root\evidence\latest-mode-abi.txt" $evidence
+Write-Output "PASS no game launch or runtime installation; evidence=$evidence"

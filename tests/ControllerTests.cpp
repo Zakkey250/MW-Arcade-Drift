@@ -16,7 +16,16 @@ int checks=0;
 void require(bool b,const char* t){++checks;if(!b){printf("FAIL %s\n",t);exit(1);}}
 mcd::Sample sample(float dt){mcd::Sample s;s.dt=dt;s.safe=true;s.speed=60;s.gas=1;s.steer=.6f;return s;}
 void trigger(mcd::Controller& c,mcd::Sample& s){c.sign=1;s.brake=0;c.step(s);s.brake=1;for(float t=0;t<.067f;t+=s.dt)c.step(s);}
-int main(){
+#include "ModeSpecialTests.h"
+#include "PlayerInputResponseTests.h"
+#include "NativeTireScopeTests.h"
+#include "NativePadSteeringTests.h"
+int main(int argc,char** argv){
+ nativeTireScopeTests();
+ nativePadSteeringTests();
+ if(argc==2&&std::strcmp(argv[1],"--native-tires")==0){printf("PASS native tyre isolation and SEH restoration: %d checks\n",checks);return 0;}
+ playerInputResponseTests();
+ modeSpecialTests();
  {
   namespace fs=std::filesystem;
   auto root=fs::temp_directory_path()/("MWArcadeDrift-profile-test-"+std::to_string(GetCurrentProcessId()));

@@ -24,7 +24,7 @@ public:
 class Scope {
  Stats& stats;uint64_t start;
 public:
- explicit Scope(Stats& s):stats(s),start(now()){}
- ~Scope(){stats.add(now()-start);}
+ explicit Scope(Stats& s,bool enabled=true):stats(s),start(enabled?now():0){}
+ ~Scope(){if(start)stats.add(now()-start);}
 };
 }

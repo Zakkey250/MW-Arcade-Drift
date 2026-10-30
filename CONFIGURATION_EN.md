@@ -1,24 +1,55 @@
-# MW Arcade Drift 0.1.1 — Profile editor
+# MW Arcade Drift 0.2.0 — Configuration guide
 
-The editor is an optional separate download. The Core requires no EXE: edit JSON in a text editor, save, then switch Ctrl+D OFF and ON. UI instructions below apply only when the optional editor is installed.
+## Modes
 
-Run `scripts/MWArcadeDrift/Configurator.exe` (.NET Framework 4.x). Choose Default or a vehicle at the top, then use separate Drift and Camera tabs. Each screen has three grouped sliders in Simple mode. Advanced exposes all 17 drift or 20 camera parameters and the corresponding enable switch. A Simple slider at 50 means the shipped default values. Its position is restored from the saved numeric values after save, reload, or mode change. Mixed Advanced edits within a group can only be represented approximately by one Simple slider; moving that slider recalculates the whole group from the shipped defaults. A confirmation appears before switching modes. The last editing mode is stored separately for Default and each vehicle in an editor-only `editor_ui.json` file beside that profile's JSON files; the game ignores it.
+Ctrl+D cycles Normal → Arcade → Special → Normal. Startup defaults to Arcade. In MWArcadeDrift.ini, [Drift] InitialMode=0/1/2 selects the starting mode. Enabled=0 starts in Normal.
 
-First entry into a vehicle copies `default_drift.json` and `default_camera.json` to `vehicles/<internal model name>/drift.json` and `camera.json`. Existing files are preserved. Defaults only seed new/missing profiles. Use Reload to refresh the editor vehicle list.
+Arcade enters a drift with braking while steering; the handbrake adds angle. Special uses adjustable tyre grip and drag for a more slippery setup. Results vary with the car, drivetrain and speed, so tune to taste. Normal disables drift assistance.
 
-Save, then switch drift mode OFF and ON using **Ctrl+D**. ON reloads that vehicle and common settings; there is no continuous file polling or reload on pause/resume. Setting drift `enabled` to false prohibits that vehicle from drifting, including when Ctrl+D is pressed. Re-enable the profile, save, then press ON. Camera has its own independent switch. Temporary Ctrl+D state is not saved to JSON.
+Compatible EventLoader events can select Special automatically, then restore your previous mode. Manual cycling is unavailable while the event owns the mode.
 
-HUD colors: green = enabled, amber = drifting, gray = disabled. Position/size/opacity are separate common HUD settings in `settings.json`, intentionally outside both tuning screens. Notifications use the game's generic messages. Language options are System, Japanese and English; unsupported system languages or unavailable Japanese glyphs fall back to English.
+## Editor and profiles
 
-Unsaved edits trigger Save / Discard / Cancel on close, vehicle change, reload or folder change. Enter and Escape choose Cancel. Failed saves block closing and preserve the edit buffer. Before saving, the same C++ validator used by the mod checks ranges and cross-field constraints. External edits cause a conflict instead of an overwrite. Originals and target paths are stored in `backups/` before replacement. Failed replacement attempts restore originals. A shared file lock coordinates the game and editor. Forced termination/power loss does not restore unsaved buffers.
+Install the optional Editor 0.2.0 and run scripts/MWArcadeDrift/Configurator.exe using Windows .NET Framework 4.x. Select Arcade mode or Special mode, then Default or a vehicle, and use the Drift/Camera tabs. The active file path is shown in the window.
 
-Old v1 files are preserved on migration; v2 uses the new default and vehicle files. Invalid profiles disable assistance for that vehicle until fixed and reloaded. Details are logged in `scripts/MWArcadeDrift.log`.
+Arcade profiles are in scripts/MWArcadeDrift/. Special profiles are under modes/special/. Each family has default_drift.json, default_camera.json and vehicles/<model>/drift.json and camera.json. Shared language and HUD settings remain in the top-level settings.json.
 
-Offline checks cover controller regressions, profile generation, validation, save safeguards, independent D3D9 rendering and bilingual UI. The preceding alpha.4 game session recorded startup, Ctrl+D notifications and continuous HUD drawing without a reported visual defect. Default handling and camera values remain the previously approved baseline. The optional N2O API is deferred until a consumer contract is available.
+First vehicle entry creates only missing per-car files from that mode's defaults. Existing vehicle files take precedence and are never overwritten by changing defaults. Select the vehicle to adjust an existing profile. Reload refreshes the vehicle list.
 
-## Drivetrain presentation (v0.1.0)
-The native front torque share selects the presentation automatically. FWD retains counter-steering and native wheel/engine speed; no artificial wheelspin is added on either axle. RWD adds rear-wheel spin; AWD/4WD adds spin on all four wheels. Unknown/invalid layouts keep native rotation and RPM. Counter-steering and its smooth return remain enabled for every layout. This does not simulate new load transfer or change tire forces, torque distribution, handling values, or AT shift decisions.
+After saving, cycle Ctrl+D back to the edited mode to reload. Pause/resume alone does not reload settings. If EventLoader owns the mode, leave the event before cycling. The editor need not remain open. A text editor can also edit the JSON files.
 
-The icon now renders to the D3D9 backbuffer from Present after player entry. No game render callsite is patched. Green = enabled, amber = drifting, gray = disabled. The alpha.4 drive session recorded successful HUD drawing and no reported visual defect. FWD was not driven in that session.
+## Special controls
 
-Tuning order: begin with the game's Performance Tuning (Handling). Use the optional editor for default or per-car profiles only if the in-game range is not enough. Save, then toggle Ctrl+D OFF and ON.
+| Control | Meaning |
+| --- | --- |
+| Front tyre grip | Percentage of original front grip. |
+| Rear sliding grip | Rear grip used during sliding, including braking and handbrake conditions. |
+| Rear grip limit — drive and lateral | Limits combined rear tyre force; reducing it also reduces available drive force. |
+| Rear lateral tyre grip | Affects rear lateral grip and related skid resistance. |
+| Drag during drift | Percentage of aerodynamic drag during slides. Lower values reduce drag, without restoring speed lost to brakes or collisions. |
+
+Both Simple and Advanced show actual percentages. Grip at 100 retains the original value. Adjustments fade out at low speed and apply temporarily during driving, without changing shared car data or saved handling values.
+
+Special uses native wheel rotation and engine RPM. Special race AI has its own calibration; editing player Special profiles does not retune opponents.
+
+## Arcade and camera controls
+
+Arcade Simple mode groups settings into turning force, slip angle/handbrake and speed retention. Camera has distance, rotation/look-ahead and smoothing groups. A slider at 50 represents the shipped defaults. Advanced exposes individual parameters. Mixed Advanced values appear approximately in Simple; moving a grouped slider recalculates its related values.
+
+Switching editing mode asks for confirmation. The last Simple/Advanced choice is saved per family and vehicle in editor_ui.json. Drift and camera have separate enable switches. A disabled vehicle profile remains disabled when selected with Ctrl+D.
+
+Arcade wheel/RPM presentation follows the drivetrain: RWD adds rear-wheel spin, AWD/4WD adds spin on all wheels, and FWD retains native rotation.
+
+## Input device
+
+Set [Input] ControlDevice=PadKeyboard or Wheel in MWArcadeDrift.ini and restart. Missing or invalid values use PadKeyboard.
+
+PadKeyboard smooths Arcade steering/throttle assistance, while braking responds immediately. In Special, only steering and countersteering are assisted; pedals remain native. Wheel bypasses these input corrections. The game's bindings and deadzone settings remain in use.
+
+## HUD, save protection and diagnostics
+
+HUD colors are green = enabled, amber = drifting, gray = disabled. Adjust placement, size and opacity in settings.json. Language options are auto/ja/en; English is used when Japanese cannot be displayed.
+
+Unsaved changes have Save/Discard/Cancel protection. Saving validates values, checks external changes and creates backups/. Invalid profiles disable assistance for that vehicle until corrected and reloaded. Keep schemaVersion=2 for Arcade and all camera profiles, and 1 for Special drift profiles.
+
+Diagnostic logging is OFF by default. For troubleshooting only, set [Diagnostics] Logging=1 in the relevant INI. Player driving telemetry also requires [Drift] Telemetry=1. Restore both to 0 afterward. Logs are created beside their ASIs in scripts/.

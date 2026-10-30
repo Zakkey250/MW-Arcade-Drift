@@ -331,5 +331,221 @@
     "section": "camera",
     "ja": "注視点の高さ",
     "en": "Target height"
+  },
+  {
+    "key": "entrySpeedMps",
+    "section": "special",
+    "ja": "開始速度 (m/s)",
+    "en": "Entry speed (m/s)",
+    "min": 8.0,
+    "max": 50.0,
+    "value": 12.0
+  },
+  {
+    "key": "exitSpeedMps",
+    "section": "special",
+    "ja": "終了速度 (m/s)",
+    "en": "Exit speed (m/s)",
+    "min": 8,
+    "max": 40.0,
+    "value": 9.0
+  },
+  {
+    "key": "entrySteer",
+    "section": "special",
+    "ja": "開始操舵量",
+    "en": "Entry steering",
+    "min": 0.08,
+    "max": 0.8,
+    "value": 0.22
+  },
+  {
+    "key": "entrySlipRad",
+    "section": "special",
+    "ja": "開始滑り角 (rad)",
+    "en": "Entry slip (rad)",
+    "min": 0.03,
+    "max": 0.3,
+    "value": 0.1
+  },
+  {
+    "key": "entryHoldSeconds",
+    "section": "special",
+    "ja": "開始入力の継続 (秒)",
+    "en": "Entry hold (s)",
+    "min": 0.02,
+    "max": 0.5,
+    "value": 0.06
+  },
+  {
+    "key": "neutralExitSeconds",
+    "section": "special",
+    "ja": "中立の終了猶予 (秒)",
+    "en": "Neutral exit (s)",
+    "min": 0.05,
+    "max": 1.0,
+    "value": 0.4
+  },
+  {
+    "key": "baseSlipRad",
+    "section": "special",
+    "ja": "基準滑り角 (rad)",
+    "en": "Base slip (rad)",
+    "min": 0.05,
+    "max": 0.4,
+    "value": 0.2
+  },
+  {
+    "key": "slideSlipRad",
+    "section": "special",
+    "ja": "アクセル・操舵の追加角 (rad)",
+    "en": "Throttle/steer slip (rad)",
+    "min": 0.0,
+    "max": 0.35,
+    "value": 0.24
+  },
+  {
+    "key": "handbrakeSlipRad",
+    "section": "special",
+    "ja": "ハンドブレーキ追加角 (rad)",
+    "en": "Handbrake slip (rad)",
+    "min": 0.0,
+    "max": 0.2,
+    "value": 0.08
+  },
+  {
+    "key": "angleSlew",
+    "section": "special",
+    "ja": "角度の変化速度",
+    "en": "Slip slew",
+    "min": 0.1,
+    "max": 1.5,
+    "value": 0.65
+  },
+  {
+    "key": "transferSeconds",
+    "section": "special",
+    "ja": "切り返し継続 (秒)",
+    "en": "Transfer hold (s)",
+    "min": 0.08,
+    "max": 0.8,
+    "value": 0.22
+  },
+  {
+    "key": "targetYawMax",
+    "section": "special",
+    "ja": "目標ヨー上限",
+    "en": "Target yaw limit",
+    "min": 0.1,
+    "max": 1.6,
+    "value": 0.95
+  },
+  {
+    "key": "targetPathSpeed",
+    "section": "special",
+    "ja": "旋回応答",
+    "en": "Path response",
+    "min": 5.0,
+    "max": 60.0,
+    "value": 32.0
+  },
+  {
+    "key": "pathAssistLimit",
+    "section": "special",
+    "ja": "進路補助の上限",
+    "en": "Path assist limit",
+    "min": 0.0,
+    "max": 45.0,
+    "value": 24.0
+  },
+  {
+    "key": "pathSlew",
+    "section": "special",
+    "ja": "進路補助の変化速度",
+    "en": "Path assist slew",
+    "min": 0.1,
+    "max": 1.5,
+    "value": 0.85
+  },
+  {
+    "key": "slipGain",
+    "section": "special",
+    "ja": "滑り角への追従",
+    "en": "Slip response",
+    "min": 0.5,
+    "max": 6.0,
+    "value": 3.4
+  },
+  {
+    "key": "yawAccelLimit",
+    "section": "special",
+    "ja": "ヨー加速度上限",
+    "en": "Yaw acceleration limit",
+    "min": 0.5,
+    "max": 8.0,
+    "value": 4.5
+  },
+  {
+    "key": "yawJerkLimit",
+    "section": "special",
+    "ja": "ヨー加速度の変化上限",
+    "en": "Yaw jerk limit",
+    "min": 2.0,
+    "max": 24.0,
+    "value": 12.0
+  },
+  {
+    "key": "blendSeconds",
+    "section": "special",
+    "ja": "開始のなめらかさ (秒)",
+    "en": "Entry blend (s)",
+    "min": 0.1,
+    "max": 0.8,
+    "value": 0.25
+  },
+  {
+    "key": "speedLossPercent",
+    "section": "special",
+    "ja": "速度減衰・空気抵抗 (%) — 100で純正",
+    "en": "Drag during drift (%) — 100 is stock",
+    "min": 0,
+    "max": 100,
+    "value": 50
+  },
+  {
+    "key": "frontGripPercent",
+    "section": "special",
+    "ja": "前輪グリップ (%)",
+    "en": "Front tyre grip (%)",
+    "min": 20,
+    "max": 100,
+    "value": 85
+  },
+  {
+    "key": "rearGripPercent",
+    "section": "special",
+    "ja": "後輪スリップ時グリップ (%)",
+    "en": "Rear sliding grip (%)",
+    "min": 20,
+    "max": 100,
+    "value": 40
+  },
+  {
+    "key": "rearLateralGripPercent",
+    "section": "special",
+    "ja": "後輪の横グリップ (%)",
+    "en": "Rear lateral tyre grip (%)",
+    "min": 10,
+    "max": 100,
+    "value": 20
+  },
+  {
+    "key": "rearStaticGripPercent",
+    "section": "special",
+    "ja": "後輪グリップ上限・加速と横方向 (%)",
+    "en": "Rear grip limit — drive and lateral (%)",
+    "min": 20,
+    "max": 100,
+    "value": 80
   }
 ]

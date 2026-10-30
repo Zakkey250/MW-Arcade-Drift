@@ -1,9 +1,11 @@
-param([string]$Version='0.1.1')
+param([string]$Version='0.2.0')
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot
 if(Test-Path "$root\release-hold.json"){ $hold=Get-Content "$root\release-hold.json" -Raw | ConvertFrom-Json; if($hold.Active){throw $hold.Reason} }
 if($Version -notmatch '^[0-9a-z.-]+$'){throw 'Invalid version'}
 if((Get-Content "$root\src\Plugin.cpp" -Raw) -notmatch ([regex]::Escape("MW Arcade Drift $Version pid="))){throw 'Version does not match core source'}
+if((Get-Content "$root\ai\Plugin.cpp" -Raw) -notmatch ([regex]::Escape("MW Arcade Drift $Version (AI component) pid="))){throw 'Version does not match AI component source'}
+if([Diagnostics.FileVersionInfo]::GetVersionInfo("$root\bin\Configurator.exe").FileVersion -ne "$Version.0"){throw 'Version does not match editor binary'}
 $msbuild=& 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe' -latest -products '*' -find MSBuild\**\Bin\MSBuild.exe
 & $msbuild "$root\CorePackageTests.vcxproj" /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
 if($LASTEXITCODE){throw 'Package test build failed'}
@@ -17,8 +19,13 @@ function Copy-ReleaseFile($source,$dest,$relative){
  Copy-Item -LiteralPath (Join-Path $root $source) -Destination $target
 }
 Copy-ReleaseFile 'bin\MWArcadeDrift.asi' $core 'scripts\MWArcadeDrift.asi'
+Copy-ReleaseFile 'ai\bin\MWArcadeDriftAI.asi' $core 'scripts\MWArcadeDriftAI.asi'
+Copy-ReleaseFile 'ai\MWArcadeDriftAI.ini' $core 'scripts\MWArcadeDriftAI.ini'
 Copy-ReleaseFile 'MWCriterionDrift.ini' $core 'scripts\MWArcadeDrift.ini'
 foreach($n in @('default_drift.json','default_camera.json','settings.json')){Copy-ReleaseFile "config\$n" $core "scripts\MWArcadeDrift\$n"}
+foreach($n in @('default_drift.json','default_camera.json')){Copy-ReleaseFile "config\modes\special\$n" $core "scripts\MWArcadeDrift\modes\special\$n"}
+Copy-ReleaseFile "RELEASE_NOTES_$Version.md" $core 'RELEASE_NOTES.md'
+Copy-ReleaseFile "EDITOR_RELEASE_NOTES_$Version.md" $editor 'EDITOR_RELEASE_NOTES.md'
 foreach($lang in @('EN','JA')){
  Copy-ReleaseFile "packaging\CORE_$lang.md" $core "CORE_$lang.md"
  Copy-ReleaseFile "CONFIGURATION_$lang.md" $core "CONFIGURATION_$lang.md"
@@ -47,6 +54,11 @@ Expand-Archive -LiteralPath "$release\MWArcadeDrift-Core-$Version.zip" -Destinat
 if($LASTEXITCODE){throw 'Core-only profile test failed'}
 & "$env:WINDIR\SysWOW64\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\Smoke-Reject.ps1" -LibraryPath "$test\scripts\MWArcadeDrift.asi"
 if($LASTEXITCODE){throw 'Extracted core load/reject test failed'}
+& "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /platform:x86 /target:exe "/out:$release\NativeAISmoke.exe" "$root\ai\NativeSmoke.cs"
+if($LASTEXITCODE){throw 'Packaged AI smoke host build failed'}
+& "$release\NativeAISmoke.exe" "$test\scripts\MWArcadeDriftAI.asi"
+if($LASTEXITCODE){throw 'Extracted AI load/reject test failed'}
+if(Test-Path "$test\scripts\MWArcadeDriftAI.log"){throw 'Packaged AI logging is not OFF'}
 $profileRoot=Join-Path $test 'scripts\MWArcadeDrift'
 & "$root\bin\ConfigCheck.exe" $profileRoot
 if($LASTEXITCODE){throw 'Extracted core configuration invalid'}
