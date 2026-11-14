@@ -1,6 +1,6 @@
 # MW Arcade Drift
 
-**MW Arcade Drift 0.2.0** for **Need for Speed: Most Wanted (2005)** adds Arcade and Special drift modes, a drift camera, a slip indicator and per-car settings. **MW Arcade Drift AI is included as part of the same MOD.** The optional **MW Arcade Drift Editor 0.2.0** is a separate download.
+**MW Arcade Drift 0.2.1** for **Need for Speed: Most Wanted (2005)** adds Arcade and Special drift modes, a drift camera, a slip indicator and per-car settings. **MW Arcade Drift AI is included as part of the same MOD.** The optional **MW Arcade Drift Editor 0.2.1** is a separate download.
 
 Press **Ctrl+D** to cycle **Normal → Arcade → Special → Normal**. Arcade uses brake-and-steering drift entry; Special offers a more slippery setup using adjustable tyre grip and drag. Neither requires separately editing the car's handling data. The handling does not reproduce another game's physics exactly.
 
@@ -8,10 +8,10 @@ Press **Ctrl+D** to cycle **Normal → Arcade → Special → Normal**. Arcade u
 
 ## Downloads
 
-- [MW Arcade Drift 0.2.0](https://github.com/Zakkey250/MW-Arcade-Drift/releases/tag/v0.2.0): required core, including the AI component, standard profiles and guides. No EXE is included.
-- [MW Arcade Drift Editor 0.2.0](https://github.com/Zakkey250/MW-Arcade-Drift/releases/tag/editor-v0.2.0): optional Windows editor for Arcade/Special drift and camera settings. Requires .NET Framework 4.x.
+- [MW Arcade Drift 0.2.1](https://github.com/Zakkey250/MW-Arcade-Drift/releases/tag/v0.2.1): required core, including the AI component, standard profiles and guides. No EXE is included.
+- [MW Arcade Drift Editor 0.2.1](https://github.com/Zakkey250/MW-Arcade-Drift/releases/tag/editor-v0.2.1): optional Windows editor for Arcade/Special drift and camera settings. Requires .NET Framework 4.x.
 
-See the [Core patch notes](RELEASE_NOTES_0.2.0.md) and [Editor patch notes](EDITOR_RELEASE_NOTES_0.2.0.md) for changes since 0.1.1.
+See the [Core patch notes](RELEASE_NOTES_0.2.1.md) and [Editor patch notes](EDITOR_RELEASE_NOTES_0.2.1.md) for changes since 0.2.0.
 
 Close the game and extract Core's `scripts/` folder into the game directory. For updates, replace **both** `MWArcadeDrift.asi` and `MWArcadeDriftAI.asi`, keep existing INIs, JSON settings and vehicle profiles, and add only missing defaults under `MWArcadeDrift/modes/special/`. Retire any legacy `MWCriterionDrift.asi`. Install the Editor separately if desired; its archive contains no gameplay files or profiles.
 

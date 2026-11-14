@@ -1,6 +1,15 @@
 #pragma once
 #include "Controller.h"
+#include "DrivingMode.h"
 namespace mcd {
+
+inline bool driftCameraActive(DrivingMode mode,const Sample& s,bool drifting){
+ if(mode==DrivingMode::Normal||!s.safe||!std::isfinite(s.beta)||!std::isfinite(s.speed))return false;
+ // Native Special may sustain a slide while the driver centers or counters.
+ return mode==DrivingMode::Special?s.speed>8.f&&std::abs(s.beta)>.04f:drifting&&std::abs(s.steer)>=.08f;
+}
+inline bool presentationWheelCaller(std::uint32_t caller){return caller==0x6b71c8;}
+inline bool presentationSmokeCaller(std::uint32_t caller){return caller==0x6b720d;}
 enum class DriveLayout {Unknown, FWD, RWD, AWD};
 inline DriveLayout driveLayout(float frontShare){
  if(!std::isfinite(frontShare)||frontShare<0.f||frontShare>1.f)return DriveLayout::Unknown;
@@ -18,11 +27,18 @@ struct Presentation {
   const float target=eligible?clamp((std::abs(beta)-.025f)/.075f,0.f,1.f):0.f;
   blend+=clamp(target-blend,-2.5f*dt,4.f*dt);
   const bool powerSpin=drive==DriveLayout::RWD||drive==DriveLayout::AWD;
-  const float wanted=(powerSpin?target:0.f)*clamp(gas,0.f,1.f)*(brake<.05f?1.f:0.f)*.45f;
-  spin+=clamp(wanted-spin,-2.f*dt,1.5f*dt);
+  const float wanted=(powerSpin?target:0.f)*clamp(gas,0.f,1.f)*(brake<.05f?1.f:0.f)*1.8f;
+  spin+=clamp(wanted-spin,-6.f*dt,6.f*dt);
  }
  float steer(float native) const {return native*(1.f-2.f*blend);}
  float wheel(float native,unsigned index) const {return index<4&&(drive==DriveLayout::AWD||(drive==DriveLayout::RWD&&index>=2))?native*(1.f+spin):native;}
+ float smoke(float native,unsigned index) const {
+  const bool powered=index<4&&(drive==DriveLayout::AWD||(drive==DriveLayout::RWD&&index>=2));
+  if(!powered||spin<=0||!std::isfinite(native))return native;
+  // Native skid is signed; the visual connector takes its absolute value.
+  const float magnitude=std::abs(native);
+  return std::copysign(std::max(magnitude,std::min(8.f,magnitude*(1.f+spin)+spin*.35f)),native);
+ }
  float rpm(float native,float redline) const {
   if(drive!=DriveLayout::RWD&&drive!=DriveLayout::AWD)return native;
   if(!std::isfinite(native)||!std::isfinite(redline)||native<0||redline<1000)return native;

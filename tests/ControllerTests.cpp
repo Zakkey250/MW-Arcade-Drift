@@ -20,12 +20,14 @@ void trigger(mcd::Controller& c,mcd::Sample& s){c.sign=1;s.brake=0;c.step(s);s.b
 #include "PlayerInputResponseTests.h"
 #include "NativeTireScopeTests.h"
 #include "NativePadSteeringTests.h"
+#include "PresentationModeTests.h"
 int main(int argc,char** argv){
  nativeTireScopeTests();
  nativePadSteeringTests();
  if(argc==2&&std::strcmp(argv[1],"--native-tires")==0){printf("PASS native tyre isolation and SEH restoration: %d checks\n",checks);return 0;}
  playerInputResponseTests();
  modeSpecialTests();
+ presentationModeTests();
  {
   namespace fs=std::filesystem;
   auto root=fs::temp_directory_path()/("MWArcadeDrift-profile-test-"+std::to_string(GetCurrentProcessId()));

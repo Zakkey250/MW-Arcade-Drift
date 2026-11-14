@@ -93,8 +93,12 @@ thread_local uint32_t nativeInputPrimary=0;
 thread_local mcd::NativePadSteering nativePadSteering;
 thread_local mcd::NativeSteeringSample nativeSteeringSample;
 thread_local bool nativeInputHuman=false;
+thread_local bool nativeNpcSteering=false;
+thread_local bool nativeNpcApplied=false;
 using NativePlayerSteering=void(__thiscall*)(void*,void*,void*,void*);
 NativePlayerSteering originalPlayerSteering=nullptr;
+void* originalRacerSteering=nullptr;
+void* originalPlayerSteeringGain=nullptr;
 
 
 std::atomic_flag busy=ATOMIC_FLAG_INIT;
@@ -105,6 +109,7 @@ std::atomic<bool> observe{false};
 mcd::PedalMapping pedals;
 
 std::atomic<bool> presentationEnabled{false};
+std::atomic<bool> cameraEnabled{false};
 
 struct VisualState {uint32_t suspension=0,engine=0;ULONGLONG tick=0;float redline=0,nativeRPM=0;int gear=-1;bool cameraValid=false;mcd::Vector forward{};mcd::DriftCamera camera;mcd::Presentation effect;mcd::FrontSteering front;};
 
@@ -122,13 +127,14 @@ std::atomic<unsigned> cameraViews{0},cameraCalls{0},cameraFresh{0},cameraScoped{
 
 uint32_t visualVehicle=0;
 
-std::atomic<unsigned> wheelViews{0},steerViews{0},rpmViews{0},audioChanges{0},hudChanges{0};
+std::atomic<unsigned> wheelViews{0},smokeViews{0},steerViews{0},rpmViews{0},audioChanges{0},hudChanges{0};
 
 using WheelGetter=float(__thiscall*)(void*,unsigned);
 
 using RPMGetter=float(__thiscall*)(void*);
 
 WheelGetter originalWheel=nullptr,originalSteer=nullptr;
+WheelGetter originalPlayerWheel=nullptr,originalSkid=nullptr,originalPlayerSkid=nullptr;
 
 RPMGetter originalRPM=nullptr;
 
@@ -246,7 +252,7 @@ bool ReloadVehicle(){
   }else{auto candidate=mcd::loadVehicleProfile(root,selectedName,true);profile=candidate;vehicleEnabled=candidate.enabled;controller.tuning=candidate.drift;}
   ApplyPreferences(prefs);
 
-  Log("PROFILE_LOADED vehicle=%s enabled=%u",selectedName.c_str(),unsigned(vehicleEnabled));return true;
+  Log("PROFILE_LOADED vehicle=%s enabled=%u enhancedDriftCalculation=%u",selectedName.c_str(),unsigned(vehicleEnabled),unsigned(controller.mode==mcd::DrivingMode::Special&&specialProfile.enhancedDriftCalculation));return true;
 
  }catch(const std::exception& e){vehicleEnabled=false;Log("PROFILE_REJECTED vehicle=%s reason=%s",selectedName.c_str(),e.what());return false;}
 
@@ -369,7 +375,7 @@ bool Method(uint32_t obj,unsigned slot,uint32_t expected){uint32_t vt=0,f=0;retu
 
 bool VisualRead(VisualState& v){
 
- if(!presentationEnabled||fault.load()||!TryAcquireSRWLockShared(&visualLock))return false;
+ if((!presentationEnabled&&!cameraEnabled)||fault.load()||!TryAcquireSRWLockShared(&visualLock))return false;
 
  v=visual;ReleaseSRWLockShared(&visualLock);
 
@@ -383,10 +389,38 @@ float __fastcall WheelHook(void* self,void*,unsigned index){
 
  const float native=originalWheel(self,index);VisualState v;
 
- if(caller!=0x6b71c8||!VisualRead(v)||v.suspension!=reinterpret_cast<uint32_t>(self)||index>=4||!std::isfinite(native))return native;
+ if(!mcd::presentationWheelCaller(caller)||!VisualRead(v)||v.suspension!=reinterpret_cast<uint32_t>(self)||index>=4||!std::isfinite(native))return native;
 
- ++wheelViews;return v.effect.wheel(native,index);
+ ++wheelViews;const auto shown=v.effect.wheel(native,index);
+ if(loggingEnabled&&shown!=native){static ULONGLONG due=0;const auto now=GetTickCount64();if(now>=due){due=now+500;Log("WHEEL_PRESENTATION kind=racer wheel=%u native=%.4f shown=%.4f spin=%.4f",index,native,shown,v.effect.spin);}}
+ return shown;
 
+}
+
+float __fastcall PlayerWheelHook(void* self,void*,unsigned index){
+ const auto caller=reinterpret_cast<uint32_t>(_ReturnAddress());
+ const float native=originalPlayerWheel(self,index);VisualState v;
+ if(!mcd::presentationWheelCaller(caller)||!VisualRead(v)||v.suspension!=reinterpret_cast<uint32_t>(self)||index>=4||!std::isfinite(native))return native;
+ ++wheelViews;const auto shown=v.effect.wheel(native,index);
+ if(loggingEnabled&&shown!=native){static ULONGLONG due=0;const auto now=GetTickCount64();if(now>=due){due=now+500;Log("WHEEL_PRESENTATION kind=player wheel=%u native=%.4f shown=%.4f spin=%.4f",index,native,shown,v.effect.spin);}}
+ return shown;
+}
+float PresentSmoke(void* self,unsigned index,uint32_t caller,float native){
+ VisualState v;
+ // The native connector only requests skid after IsWheelOnGround. Other
+ // consumers (including physical tyre forces) always receive the real value.
+ if(!mcd::presentationSmokeCaller(caller)||!VisualRead(v)||v.suspension!=reinterpret_cast<uint32_t>(self)||index>=4)return native;
+ const auto shown=v.effect.smoke(native,index);
+ if(loggingEnabled&&std::abs(shown)>std::abs(native)){++smokeViews;static ULONGLONG due=0;const auto now=GetTickCount64();if(now>=due){due=now+500;Log("SMOKE_PRESENTATION wheel=%u native=%.4f shown=%.4f spin=%.4f",index,native,shown,v.effect.spin);}}
+ return shown;
+}
+float __fastcall SkidHook(void* self,void*,unsigned index){
+ const auto caller=reinterpret_cast<uint32_t>(_ReturnAddress());
+ return PresentSmoke(self,index,caller,originalSkid(self,index));
+}
+float __fastcall PlayerSkidHook(void* self,void*,unsigned index){
+ const auto caller=reinterpret_cast<uint32_t>(_ReturnAddress());
+ return PresentSmoke(self,index,caller,originalPlayerSkid(self,index));
 }
 
 float __fastcall SteerHook(void* self,void*,unsigned index){
@@ -519,30 +553,32 @@ void* __cdecl CameraHook(void* matrix,Vec* eye,Vec* center,Vec* up){
 
 void PublishVisual(const Snapshot& s,ULONGLONG now){
 
- if(!presentationEnabled)return;
+ if(!presentationEnabled&&!cameraEnabled)return;
 
  uint32_t suspension=0,engine=0,vt=0,attributes=0;float redline=0;
+ const bool suspensionValid=Get(s.vehicle+0x44,suspension)&&Get(suspension,vt)&&(vt==0x8abac8||vt==0x8abc30);
+ const bool racerSuspension=suspensionValid&&vt==0x8abac8;
 
- const bool interfaces=Get(s.vehicle+0x44,suspension)&&Get(suspension,vt)&&vt==0x8abac8&&
+ const bool interfaces=racerSuspension&&
 
   Get(s.vehicle+0x48,engine)&&Get(engine,vt)&&vt==0x8ab6e0&&Get(engine+0xf8,attributes)&&Get(attributes+0x58,redline)&&std::isfinite(redline)&&redline>1000&&redline<20000;
 
  if(visualVehicle!=s.vehicle||now-lastSeen>100){visualEnvelope={};frontEnvelope={};cameraEnvelope={};visualVehicle=s.vehicle;}
 
- const bool safe=interfaces&&enabled&&vehicleEnabled&&!observe&&controller.mode!=mcd::DrivingMode::Special&&s.s.safe&&s.s.dt>0&&s.s.dt<=.05f;
+ const bool safe=presentationEnabled&&suspensionValid&&enabled&&vehicleEnabled&&!observe&&s.s.safe&&s.s.dt>0&&s.s.dt<=.05f;
 
  if(!safe){visualEnvelope={};frontEnvelope={};}else {
   // ISuspension=SuspensionRacer+0x4c; mTransInfo data=primary+0xdc.
   // Verified native rear/front drive getters read [primary+dc]+70 (front share).
   uint32_t transData=0;float split=-1.f;
-  static const bool layoutGuard=Match(0x6b1c14,"c7464cc8ba8a00")&&Match(0x68de00,"8b81dc000000d94070")&&Match(0x68de20,"8b81dc000000d94070");
+  static const bool layoutGuard=Match(0x6b1c14,"c7464cc8ba8a00")&&Match(0x6b2694,"c7464c30bc8a00")&&Match(0x68de00,"8b81dc000000d94070")&&Match(0x68de20,"8b81dc000000d94070");
   const auto drive=layoutGuard&&Get(suspension+0x90,transData)&&Get(transData+0x70,split)?mcd::driveLayout(split):mcd::DriveLayout::Unknown;
   static uint32_t loggedVehicle=0;static auto loggedDrive=mcd::DriveLayout::Unknown;
   if(loggedVehicle!=s.vehicle||loggedDrive!=drive){Log("DRIVE_LAYOUT vehicle=%08X type=%s frontShare=%.4f counterSteer=1",s.vehicle,mcd::driveName(drive),split);loggedVehicle=s.vehicle;loggedDrive=drive;}
-  visualEnvelope.step(s.s.dt,controller.phase==mcd::Phase::Drift&&std::abs(s.s.steer)>=.08f,s.s.beta,s.s.gas,s.s.brake,drive);
+  visualEnvelope.step(s.s.dt,mcd::driftCameraActive(controller.mode,s.s,controller.phase==mcd::Phase::Drift),s.s.beta,s.s.gas,s.s.brake,drive);
  }
 
- if(safe){
+ if(safe&&racerSuspension&&controller.mode==mcd::DrivingMode::Arcade){
 
   const float front[2]={originalSteer(reinterpret_cast<void*>(suspension),0),originalSteer(reinterpret_cast<void*>(suspension),1)};
 
@@ -552,18 +588,18 @@ void PublishVisual(const Snapshot& s,ULONGLONG now){
 
   else frontEnvelope={};
 
- }
+ }else frontEnvelope={};
 
  const auto& cameraTuning=controller.mode==mcd::DrivingMode::Special?specialProfile.camera:profile.camera;
- const bool cameraValid=cameraTuning.enabled&&interfaces&&enabled&&vehicleEnabled&&!observe&&s.s.dt>0&&s.s.dt<=.05f;
+ const bool cameraValid=cameraEnabled&&cameraTuning.enabled&&enabled&&vehicleEnabled&&!observe&&s.s.dt>0&&s.s.dt<=.05f;
 
  cameraEnvelope.tuning=cameraTuning;
 
- if(cameraValid&&cameraTuning.enabled)cameraEnvelope.step(s.s.dt,safe&&controller.phase==mcd::Phase::Drift&&std::abs(s.s.steer)>=.08f,s.s.beta);
+ if(cameraValid)cameraEnvelope.step(s.s.dt,mcd::driftCameraActive(controller.mode,s.s,controller.phase==mcd::Phase::Drift),s.s.beta);
 
  else cameraEnvelope={};
 
- VisualState next;next.cameraValid=cameraValid;next.forward=s.forward;next.camera=cameraEnvelope;next.front=frontEnvelope;next.suspension=safe?suspension:0;next.engine=safe?engine:0;next.tick=now;next.redline=redline;next.effect=visualEnvelope;
+ VisualState next;next.cameraValid=cameraValid;next.forward=s.forward;next.camera=cameraEnvelope;next.front=frontEnvelope;next.suspension=safe?suspension:0;next.engine=safe&&interfaces&&controller.mode==mcd::DrivingMode::Arcade?engine:0;next.tick=now;next.redline=redline;next.effect=visualEnvelope;
 
  if(interfaces){Get(engine+0x12c,next.nativeRPM);uint32_t transmission=0,table=0;
 
@@ -879,6 +915,78 @@ bool NativeDiagnosticDue(NativeDiagnosticStamp (&stamps)[16],uint32_t primary,UL
  }
  *available={primary,now+interval};return true;
 }
+bool __cdecl UseNpcSteering(uint32_t primary){
+ if(!nativeNpcSteering||nativeInputPrimary!=primary)return false;
+ if(loggingEnabled)nativeNpcApplied=true;
+ return true;
+}
+void __declspec(naked) NativeRacerSteeringHook(){__asm{
+ // Only the first six bytes are detoured. Event Loader validates the
+ // following decision and owns a separate hook at the NPC destination.
+ pushfd
+ pushad
+ mov ebx,esp
+ sub esp,528
+ and esp,0FFFFFFF0h
+ fxsave [esp]
+ push ecx
+ call UseNpcSteering
+ add esp,4
+ fxrstor [esp]
+ test al,al
+ mov esp,ebx
+ jnz npc
+ popad
+ popfd
+ jmp dword ptr [originalRacerSteering]
+npc:
+ popad
+ popfd
+ sub esp,20h
+ push esi
+ mov esi,ecx
+ push edi
+ push 0069EA08h
+ ret
+}}
+void __declspec(naked) NativePlayerSteeringGainHook(){__asm{
+ // SuspensionPlayer has a different tire layout. Replace only the gain
+ // on ST(0) with the stock NPC's 45 degree base. Preserve the native gear,
+ // chassis multiplier, wheel geometry and tire-force calculation.
+ pushfd
+ pushad
+ mov ebx,esp
+ sub esp,528
+ and esp,0FFFFFFF0h
+ fxsave [esp]
+ push esi
+ call UseNpcSteering
+ add esp,4
+ fxrstor [esp]
+ test al,al
+ mov esp,ebx
+ jz passthrough
+ fstp st(0)
+ fld dword ptr ds:[008A0DBCh]
+ fst dword ptr [esi+11Ch]
+passthrough:
+ popad
+ popfd
+ jmp dword ptr [originalPlayerSteeringGain]
+}}
+bool InstallNpcSteering(){
+ if(!Match(0x69e9e0,"83ec20568bf1")||!Match(0x69ea20,"8b8ea0000000d94148d80dbc0d8a00")||
+    !Match(0x69fb74,"6683bfc800000001d88f8c000000")||!Match(0x8a0dbc,"00003442"))return false;
+ const auto racer=reinterpret_cast<void*>(0x69e9e0),player=reinterpret_cast<void*>(0x69fb74);
+ if(MH_CreateHook(racer,&NativeRacerSteeringHook,&originalRacerSteering)!=MH_OK)return false;
+ if(MH_CreateHook(player,&NativePlayerSteeringGainHook,&originalPlayerSteeringGain)!=MH_OK){
+  MH_RemoveHook(racer);originalRacerSteering=nullptr;return false;
+ }
+ if(MH_QueueEnableHook(racer)==MH_OK&&MH_QueueEnableHook(player)==MH_OK&&MH_ApplyQueued()==MH_OK)return true;
+ MH_DisableHook(racer);MH_DisableHook(player);
+ MH_RemoveHook(racer);MH_RemoveHook(player);
+ originalRacerSteering=originalPlayerSteeringGain=nullptr;return false;
+}
 void __fastcall NativePlayerSteeringHook(void* self,void*,void* context,void* left,void* right){
  // 0069D71B copies native IInput steering to context+8C. The original
  // 0069FB20 consumes it at 0069FB7C, then computes both front wheel angles.
@@ -888,15 +996,20 @@ void __fastcall NativePlayerSteeringHook(void* self,void*,void* context,void* le
  // AI inputs. Do not stack the human pad filter on that closed-loop driver.
  using EngineTest=unsigned(__cdecl*)();static EngineTest engineTest=nullptr;
  if(!engineTest){if(auto loader=GetModuleHandleW(L"MWEventLoader.asi"))engineTest=reinterpret_cast<EngineTest>(GetProcAddress(loader,"MWEL_PlayerEngineTestV1"));}
- const bool active=!(nativeInputHuman&&engineTest&&engineTest()==1)&&nativeInputPrimary==reinterpret_cast<uint32_t>(self)&&nativeInputPrimary&&
+ const unsigned pilot=nativeInputHuman&&engineTest?engineTest():0;
+ const bool active=pilot!=1&&nativeInputPrimary==reinterpret_cast<uint32_t>(self)&&nativeInputPrimary&&
   (!nativeInputHuman||playerInput.device==mcd::ControlDevice::PadKeyboard)&&!fault.load()&&
   Get(address+0x8c,raw)&&Get(address+0xc0,dt)&&std::isfinite(raw)&&std::abs(raw)<=1.01f&&std::isfinite(dt)&&dt>0&&dt<=.05f;
  float filtered=nativeInputHuman?nativePadSteering.step(nativeInputPrimary,GetTickCount64(),dt,raw,active):raw;
  float brake=0,handbrake=0;
- if(active&&Get(address+0x5c,brake)&&Get(address+0x7c,handbrake))
+ // NPC response uses a direct steering request. Retain the pad slew but
+ // let the driver countersteer. The isolated NeoAI test pilot still sends
+ // yaw requests; AI competitors and their existing feedback are untouched.
+ const bool direct=nativeNpcSteering&&!pilot;
+ if(active&&Get(address+0x5c,brake)&&Get(address+0x7c,handbrake)&&!direct)
   filtered=mcd::nativePadDriftSteering(filtered,nativeSteeringSample,brake,handbrake);
  if(loggingEnabled&&active){static NativeDiagnosticStamp samples[16]{};const unsigned kind=nativeInputHuman?1u:0u;const auto now=GetTickCount64();if(NativeDiagnosticDue(samples,nativeInputPrimary,now,50)){
-  Log("NATIVE_PAD_RESPONSE ms=%llu primary=%08X human=%u requested=%.6f applied=%.6f beta=%.6f yaw=%.6f speed=%.6f safe=%u brake=%.4f handbrake=%.4f",now,nativeInputPrimary,kind,raw,filtered,nativeSteeringSample.beta,nativeSteeringSample.yaw,nativeSteeringSample.speed,unsigned(nativeSteeringSample.safe),brake,handbrake);}}
+  Log("NATIVE_PAD_RESPONSE ms=%llu primary=%08X human=%u requested=%.6f applied=%.6f beta=%.6f yaw=%.6f speed=%.6f safe=%u brake=%.4f handbrake=%.4f npc_direct=%u",now,nativeInputPrimary,kind,raw,filtered,nativeSteeringSample.beta,nativeSteeringSample.yaw,nativeSteeringSample.speed,unsigned(nativeSteeringSample.safe),brake,handbrake,unsigned(direct));}}
  if(!active||filtered==raw){originalPlayerSteering(self,context,left,right);return;}
  *reinterpret_cast<float*>(address+0x8c)=filtered;
  __try{originalPlayerSteering(self,context,left,right);}
@@ -940,6 +1053,8 @@ void NativeSuspensionCall(void* self,float dt,NativeSuspensionStep nativeStep){
  const auto previousInputPrimary=nativeInputPrimary;
  const auto previousInputHuman=nativeInputHuman;
  const auto previousSteeringSample=nativeSteeringSample;
+ const auto previousNpcSteering=nativeNpcSteering;
+ const auto previousNpcApplied=nativeNpcApplied;
  nativeInputPrimary=tiresApplied?reinterpret_cast<uint32_t>(self):0;
  nativeInputHuman=handlingDriver==0;
  nativeSteeringSample={};
@@ -952,12 +1067,34 @@ void NativeSuspensionCall(void* self,float dt,NativeSuspensionStep nativeStep){
    nativeSteeringSample={mcd::length(mcd::tangent(velocity,up)),mcd::surfaceBeta(forward,velocity,up),mcd::dot(angular,up),up.y>.85f&&(flags&12)==0};
   }
  }
+ uint32_t ai=0,aiType=0;
+ // The exact local Special owner only, with both native steering surfaces
+ // installed. Never turn an RPD officer or an AI participant into a second
+ // owner of the steering decision.
+ const bool npc=originalRacerSteering&&originalPlayerSteeringGain&&nativeInputPrimary&&nativeInputHuman&&
+  owner+0x80==identity&&enabled&&vehicleEnabled&&controller.mode==mcd::DrivingMode::Special&&specialProfile.enhancedDriftCalculation&&
+  nativeSteeringSample.safe&&nativeSteeringSample.speed>5&&Get(owner+0xd4,ai)&&Get(ai,aiType)&&aiType!=0x892480;
+ nativeNpcSteering=npc;
+ bool npcApplied=false;
+ nativeNpcApplied=false;
  __try{nativeStep(self,dt);}__finally{
+  npcApplied=nativeNpcApplied;
   nativeInputPrimary=previousInputPrimary;
   nativeInputHuman=previousInputHuman;
   nativeSteeringSample=previousSteeringSample;
+  nativeNpcSteering=previousNpcSteering;
+  nativeNpcApplied=previousNpcApplied;
   const bool dragRestored=drag.restore(),tiresRestored=scope.restore();
   if(!dragRestored||!tiresRestored){fault.store(true);Log("NATIVE_HANDLING_RESTORE_FAILURE primary=%08X tires=%u drag=%u",reinterpret_cast<uint32_t>(self),unsigned(tiresRestored),unsigned(dragRestored));}
+ }
+ if(loggingEnabled&&npcApplied){
+  static NativeDiagnosticStamp samples[16]{};const auto now=GetTickCount64();
+  const auto primary=reinterpret_cast<uint32_t>(self);const bool player=nativeStep==originalPlayerSuspension;
+  if(NativeDiagnosticDue(samples,primary,now,1000)){
+   float limit=0;
+   if(Get(primary+(player?0x11c:0x128),limit))
+    Log("SPECIAL_NPC_STEERING primary=%08X suspension=%s native_gain=%.4f player_only=1",primary,player?"player":"racer",limit);
+  }
  }
  // Read-only TirePlayer evidence, after the native force calculation. Off
  // bypasses wheel reads and formatting. Offsets are verified in the local
@@ -984,7 +1121,7 @@ DWORD WINAPI Initialize(void*){
 
  wchar_t loggingSetting[8]{};GetPrivateProfileStringW(L"Diagnostics",L"Logging",L"",loggingSetting,8,ini);loggingEnabled=wcscmp(loggingSetting,L"1")==0;
 
- Log("MW Arcade Drift 0.2.0 pid=%lu",GetCurrentProcessId());
+ Log("MW Arcade Drift 0.2.1 pid=%lu",GetCurrentProcessId());
 
  const bool startEnabled=GetPrivateProfileIntW(L"Drift",L"Enabled",1,ini)!=0;
  const int initial=startEnabled?GetPrivateProfileIntW(L"Drift",L"InitialMode",1,ini):0;
@@ -1036,11 +1173,16 @@ DWORD WINAPI Initialize(void*){
  const bool nativeSteering=Match(0x69fb20,"83ec2056578b7c242c")&&Match(0x69fb7c,"d88f8c000000")&&
   MH_CreateHook(reinterpret_cast<void*>(0x69fb20),&NativePlayerSteeringHook,reinterpret_cast<void**>(&originalPlayerSteering))==MH_OK&&MH_EnableHook(reinterpret_cast<void*>(0x69fb20))==MH_OK;
  Log("NATIVE_PAD_STEERING ready=%u input_only=1 wheel_bypass=1",unsigned(nativeSteering));
+ const bool npcSteering=racerHandling&&playerHandling&&InstallNpcSteering();
+ Log("SPECIAL_NPC_STEERING_HOOK ready=%u player_scope=1",unsigned(npcSteering));
  nativeHandlingReady.store(racerHandling&&playerHandling&&(nativeSteering||playerInput.device==mcd::ControlDevice::Wheel));
 
  if(GetPrivateProfileIntW(L"Presentation",L"Enabled",1,ini)&&!observe){
 
   const bool guards=Match(0x6a96d0,"8b44240483f8027310")&&Match(0x68e570,"8b4424048b8c8168010000")&&Match(0x6a03a0,"d9812c010000c3")&&
+   Match(0x6ac1c0,"8b4424048b8c81e0000000d981d0000000")&&
+   Match(0x6a9530,"8b4424048b8c8168010000d98130010000")&&Match(0x6ac260,"8b4424048b8c81e0000000d981ec000000")&&
+   Match(0x6b720a,"ff5238d81568098900")&&
 
    Match(0x6b7141,"ff5058d80dd8ab8a00")&&Match(0x6b71c5,"ff5050d95c2420")&&
 
@@ -1049,24 +1191,33 @@ DWORD WINAPI Initialize(void*){
   if(guards&&MH_CreateHook(reinterpret_cast<void*>(0x6a96d0),&SteerHook,reinterpret_cast<void**>(&originalSteer))==MH_OK&&
 
    MH_CreateHook(reinterpret_cast<void*>(0x68e570),&WheelHook,reinterpret_cast<void**>(&originalWheel))==MH_OK&&
+   MH_CreateHook(reinterpret_cast<void*>(0x6ac1c0),&PlayerWheelHook,reinterpret_cast<void**>(&originalPlayerWheel))==MH_OK&&
+   MH_CreateHook(reinterpret_cast<void*>(0x6a9530),&SkidHook,reinterpret_cast<void**>(&originalSkid))==MH_OK&&
+   MH_CreateHook(reinterpret_cast<void*>(0x6ac260),&PlayerSkidHook,reinterpret_cast<void**>(&originalPlayerSkid))==MH_OK&&
 
    MH_CreateHook(reinterpret_cast<void*>(0x6a03a0),&RPMHook,reinterpret_cast<void**>(&originalRPM))==MH_OK&&
 
    MH_QueueEnableHook(reinterpret_cast<void*>(0x6a96d0))==MH_OK&&MH_QueueEnableHook(reinterpret_cast<void*>(0x68e570))==MH_OK&&
+   MH_QueueEnableHook(reinterpret_cast<void*>(0x6ac1c0))==MH_OK&&MH_QueueEnableHook(reinterpret_cast<void*>(0x6a9530))==MH_OK&&MH_QueueEnableHook(reinterpret_cast<void*>(0x6ac260))==MH_OK&&
 
    MH_QueueEnableHook(reinterpret_cast<void*>(0x6a03a0))==MH_OK&&MH_ApplyQueued()==MH_OK){presentationEnabled=true;Log("PRESENTATION_READY callerScoped=1 physicsRPMWrites=0 gearboxWrites=0 awaiting runtime read counts");}
 
-  else {Log("PRESENTATION_DISABLED guard or hook failure; native presentation retained");}
+  else {
+   for(uint32_t target:{0x6a96d0u,0x68e570u,0x6ac1c0u,0x6a9530u,0x6ac260u,0x6a03a0u}){
+    MH_DisableHook(reinterpret_cast<void*>(target));MH_RemoveHook(reinterpret_cast<void*>(target));
+   }
+   Log("PRESENTATION_DISABLED guard or hook failure; native presentation retained");
+  }
 
  }
 
- if(presentationEnabled&&GetPrivateProfileIntW(L"Camera",L"Enabled",1,ini)){
+ if(!observe&&GetPrivateProfileIntW(L"Camera",L"Enabled",1,ini)){
 
   if(Match(0x6cf0a0,"558bec83e4f081ec8c000000")&&CameraSite()&&
 
    MH_CreateHook(reinterpret_cast<void*>(0x6cf0a0),&CameraHook,reinterpret_cast<void**>(&originalLookAt))==MH_OK&&
 
-   MH_EnableHook(reinterpret_cast<void*>(0x6cf0a0))==MH_OK)Log("CAMERA_READY orbitMaxDeg=28 rollMaxDeg=2 awaiting runtime camera calls");
+   MH_EnableHook(reinterpret_cast<void*>(0x6cf0a0))==MH_OK){cameraEnabled=true;Log("CAMERA_READY orbitMaxDeg=28 rollMaxDeg=2 awaiting runtime camera calls");}
 
   else Log("CAMERA_DISABLED incompatible bytes or hook conflict");
 

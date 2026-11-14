@@ -2,13 +2,14 @@
 #include "ProfileFiles.h"
 #include "SpecialTuning.h"
 namespace mcd {
-struct SpecialProfile {bool enabled=true;SpecialTuning drift;CameraTuning camera;};
+struct SpecialProfile {bool enabled=true,enhancedDriftCalculation=true;SpecialTuning drift;CameraTuning camera;};
 inline SpecialProfile parseSpecialProfile(Json d,Json c){
  if(!d.is_object()||!d.contains("schemaVersion")||!d["schemaVersion"].is_number_integer()||d["schemaVersion"]!=1)throw std::runtime_error("special schemaVersion must be 1");
 #define MCD_SPECIAL_KEY(n,v,l,h) #n,
- keys(d,{"schemaVersion","enabled",MCD_SPECIAL_FIELDS(MCD_SPECIAL_KEY)});
+ keys(d,{"schemaVersion","enabled","enhancedDriftCalculation",MCD_SPECIAL_FIELDS(MCD_SPECIAL_KEY)});
 #undef MCD_SPECIAL_KEY
  SpecialProfile p;p.enabled=boolean(d,"enabled",true);
+ p.enhancedDriftCalculation=boolean(d,"enhancedDriftCalculation",true);
 #define MCD_SPECIAL_READ(n,v,l,h) p.drift.n=number(d,#n,p.drift.n,l,h);
  MCD_SPECIAL_FIELDS(MCD_SPECIAL_READ)
 #undef MCD_SPECIAL_READ

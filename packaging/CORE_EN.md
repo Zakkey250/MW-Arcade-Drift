@@ -1,4 +1,4 @@
-# MW Arcade Drift — Core (0.2.0)
+# MW Arcade Drift — Core (0.2.1)
 
 The core includes MW Arcade Drift AI as part of the same MOD. Drifting, camera, HUD and per-car profiles work without the optional Editor or .NET. No game executable, game assets, saves, ASI loader or EventLoader is included.
 
@@ -16,13 +16,13 @@ Other executable variants are rejected. Redux compatibility remains provisional.
 
 Close the game and extract scripts into the game directory. A new installation uses all included files.
 
-When updating from 0.1.1, back up your settings, replace MWArcadeDrift.asi, and add MWArcadeDriftAI.asi and MWArcadeDriftAI.ini. Keep both ASIs at the same release version. Preserve existing INIs, default_*.json, settings.json and vehicles/. Add only missing default files under MWArcadeDrift/modes/special/. Existing Special preview profiles should also be kept. Retire any legacy MWCriterionDrift.asi to avoid duplicate loading.
+When updating, back up your settings and replace both ASIs. If upgrading from 0.1.1, also add the missing MWArcadeDriftAI.ini. Keep both ASIs at the same release version. Preserve existing INIs, default_*.json, settings.json and vehicles/. Add only missing default files under MWArcadeDrift/modes/special/. Existing Special preview profiles should also be kept. Retire any legacy MWCriterionDrift.asi to avoid duplicate loading.
 
 ## Play and configure
 
 Ctrl+D cycles Normal → Arcade → Special → Normal. Startup defaults to Arcade. Normal disables assistance. Arcade enters a drift with steering and braking; Special uses a more slippery grip setup. The handbrake can also help initiate a slide.
 
-Profiles are separate for each mode and vehicle. First vehicle entry creates missing per-car files from that mode's defaults without overwriting existing files. Save with the optional Editor 0.2.0 or a text editor, then cycle Ctrl+D back to the edited mode to reload. See CONFIGURATION_EN.md.
+Profiles are separate for each mode and vehicle. First vehicle entry creates missing per-car files from that mode's defaults without overwriting existing files. Save with the optional Editor 0.2.1 or a text editor, then cycle Ctrl+D back to the edited mode to reload. See CONFIGURATION_EN.md.
 
 Compatible EventLoader events can force Special and restore your previous mode afterward. Manual cycling is unavailable while the event owns the mode. NeoAI can request assistance for selected cars; installing this MOD alone does not automatically change all opponents, police or traffic.
 
@@ -30,4 +30,4 @@ Use [Input] ControlDevice=PadKeyboard or ControlDevice=Wheel in MWArcadeDrift.in
 
 HUD colors are green = enabled, amber = drifting, gray = disabled. Language and HUD placement are in settings.json. Both components ship with diagnostic logging OFF. Enable [Diagnostics] Logging=1 only for troubleshooting and return it to 0 afterward.
 
-MWArcadeDrift-Editor-0.2.0.zip is a separate optional download. See RELEASE_NOTES.md for changes since 0.1.1.
+MWArcadeDrift-Editor-0.2.1.zip is a separate optional download. See RELEASE_NOTES.md for changes since 0.2.0.

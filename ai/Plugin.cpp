@@ -249,7 +249,7 @@ bool PlayerDependency(HMODULE player){
 DWORD WINAPI Initialize(void*){
  GetModuleFileNameW(module,ini,MAX_PATH);auto dot=wcsrchr(ini,L'.');if(!dot)return 0;wcscpy_s(dot,5,L".ini");wcscpy_s(logfile,ini);wcscpy_s(wcsrchr(logfile,L'.'),5,L".log");
  wchar_t value[8]{};GetPrivateProfileStringW(L"Diagnostics",L"Logging",L"",value,8,ini);logging=wcscmp(value,L"1")==0;enabled=GetPrivateProfileIntW(L"AI",L"Enabled",1,ini)==1;
- Log("MW Arcade Drift 0.2.0 (AI component) pid=%lu",GetCurrentProcessId());if(!enabled)return 0;
+ Log("MW Arcade Drift 0.2.1 (AI component) pid=%lu",GetCurrentProcessId());if(!enabled)return 0;
  auto digest=Digest(nullptr);if(GetModuleHandleW(nullptr)!=reinterpret_cast<HMODULE>(0x400000)||(digest!="80774c2e5d619b4f120b48d4462896fd504c263399d203a238769cffde1d253c"&&digest!="b248271bf8eac8c9b283b8c95e3add672b713bf529b05f1780e58268493b9d06"&&digest!="0c5675a08cd71fd6d31ca87e992a915054bd8b80d268bff0561d7ecc2067e342")){Log("AI_REJECTED host");return 0;}
  bool dependency=false;for(U i=0;i<150;i++){auto player=GetModuleHandleW(L"MWArcadeDrift.asi");if(PlayerDependency(player)){dependency=true;break;}Sleep(100);}if(!dependency){Log("AI_REJECTED player mode API/dependency not ready");return 0;}
  if(!Match(PhysicsStep,"\x56\x8b\xf1\x8b\x06\x57\xff\x50\x4c",9)||!Match(0x696fd0,"\x8b\x41\x30\x8b\x08\x8b\x54\x24\x04",9)||!Match(0x696ff0,"\x8b\x41\x30\x8b\x08\x8b\x54\x24\x04",9)||!Match(0x688090,"\x8b\x41\x2c\x8b\x40\x24\xc3",7)){Log("AI_REJECTED dispatch/setters/model getter");return 0;}

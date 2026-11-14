@@ -13,8 +13,8 @@ using System.Reflection;
 
 [assembly: AssemblyTitle("MW Arcade Drift Editor")]
 [assembly: AssemblyProduct("MW Arcade Drift Editor")]
-[assembly: AssemblyVersion("0.2.0.0")]
-[assembly: AssemblyFileVersion("0.2.0.0")]
+[assembly: AssemblyVersion("0.2.1.0")]
+[assembly: AssemblyFileVersion("0.2.1.0")]
 
 class Field {
  public string key {get;set;} public string section {get;set;} public string ja {get;set;} public string en {get;set;} public double min {get;set;} public double max {get;set;} public double value {get;set;}
@@ -134,7 +134,7 @@ class Editor : Form {
  }
  void UpdateLocation(){
   string name=active==""?T("デフォルト","Default"):active;
-  Text=(dirty?"* ":"")+"MW Arcade Drift Editor 0.2.0 — "+(specialFamily?T("スペシャルモード","Special mode"):T("アーケードモード","Arcade mode"))+" — "+name;
+  Text=(dirty?"* ":"")+"MW Arcade Drift Editor 0.2.1 — "+(specialFamily?T("スペシャルモード","Special mode"):T("アーケードモード","Arcade mode"))+" — "+name;
   location.Text=T("編集中: ","Editing: ")+name+"  /  "+(tabs.SelectedIndex==1?T("カメラ","Camera"):T("ドリフト","Drift"))+"\n"+(tabs.SelectedIndex==1?CameraFile:DriftFile);
   status.Text=(dirty?T("未保存の変更があります。\n","Unsaved changes.\n"):"")+T("保存後、ゲームで Ctrl+D で一周して対象モードへ戻して反映。\nデフォルトの変更は、作成済みの車種別設定を上書きしません。","After saving, cycle Ctrl+D back to the selected mode to apply.\nChanging defaults does not overwrite existing vehicle profiles.");
  }
@@ -145,6 +145,11 @@ class Editor : Form {
    var page=new TabPage(section=="drift"?T("ドリフト","Drift"):T("カメラ","Camera"));var panel=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false,AutoScroll=true,Padding=new Padding(14)};page.Controls.Add(panel);tabs.TabPages.Add(page);
    var values=section=="drift"?drift:camera;var enabled=new CheckBox{Text=section=="drift"?T("この車両のドリフトを有効にする","Enable drift for this profile"):T("ドリフトカメラを有効にする","Enable drift camera"),Width=700,Height=34,Checked=!values.ContainsKey("enabled")||Convert.ToBoolean(values["enabled"])};
    enabled.CheckedChanged+=(s,e)=>{values["enabled"]=enabled.Checked;Changed();};panel.Controls.Add(enabled);
+   if(specialFamily&&section=="drift"){
+    var enhancement=new CheckBox{Name="enhancedDriftCalculation",Text=T("ドリフト演算強化","Enhanced drift calculation"),Width=740,Height=32,Checked=!drift.ContainsKey("enhancedDriftCalculation")||Convert.ToBoolean(drift["enhancedDriftCalculation"])};
+    enhancement.CheckedChanged+=(s,e)=>{drift["enhancedDriftCalculation"]=enhancement.Checked;Changed();};panel.Controls.Add(enhancement);
+    panel.Controls.Add(new Label{Width=760,Height=54,Text=T("スペシャルの操舵応答を変更します。4WDには不向きです。\n違和感がある場合はOFFにしてください。車種ごとに保存できます。","Changes steering response in Special. Not recommended for 4WD.\nTurn OFF if the response feels unsuitable. Saved separately for each car.")});
+   }
    if(mode.SelectedIndex==1){foreach(var f in fields.Where(f=>f.section==section))AddAdvanced(panel,values,f);}
    else {
     panel.Controls.Add(new Label{Text=specialFamily?T("純正性能に対する割合。車種ごとの保存済み設定を表示します。","Percentages of original handling. Shows saved settings for this car."):T("50 = 配布時の標準値。保存済みの調整値を表示します。","50 = shipped defaults. Sliders show saved group values."),Width=760,Height=35});
@@ -286,7 +291,7 @@ class Editor : Form {
   Check(File.ReadAllText(arcadePath)==arcadeBytes,"special simple save leaves arcade unchanged");
   var defaultSpecialPath=DriftFile;var defaultSpecialBytes=File.ReadAllText(defaultSpecialPath);
   var specialVehicle=Path.Combine(root,"vehicles","SPEED_TEST");Directory.CreateDirectory(specialVehicle);
-  var olderProfile=Read(defaultSpecialPath);olderProfile.Remove("speedLossPercent");
+  var olderProfile=Read(defaultSpecialPath);olderProfile.Remove("speedLossPercent");olderProfile.Remove("enhancedDriftCalculation");
   File.WriteAllText(Path.Combine(specialVehicle,"drift.json"),Pretty(olderProfile));File.Copy(CameraFile,Path.Combine(specialVehicle,"camera.json"));
   OpenRoot();targets.SelectedItem="SPEED_TEST";mode.SelectedIndex=0;RenderTabs();
   var speedRow=((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<Panel>().Single(r=>r.Name=="speedLossPercent");
@@ -294,6 +299,15 @@ class Editor : Form {
   Check(speedNumber.Value==50&&!dirty,"missing speed setting displays runtime default without modifying file");
   speedNumber.Value=73;Check(Save(),"per-car speed setting saves with native validation");LoadTarget();
   Check(Convert.ToDouble(drift["speedLossPercent"])==73,"per-car speed setting reloads");
+  var enhancement=((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<CheckBox>().Single(c=>c.Name=="enhancedDriftCalculation");
+  Check(enhancement.Checked&&!dirty,"legacy profile defaults to accepted enhancement without changing file");
+  enhancement.Checked=false;Check(Save(),"per-car enhancement OFF saves");LoadTarget();
+  Check(!Convert.ToBoolean(drift["enhancedDriftCalculation"]),"per-car enhancement OFF reloads");
+  mode.SelectedIndex=1;RenderTabs();
+  enhancement=((FlowLayoutPanel)tabs.TabPages[0].Controls[0]).Controls.OfType<CheckBox>().Single(c=>c.Name=="enhancedDriftCalculation");
+  Check(!enhancement.Checked,"enhancement switch persists across Simple/Advanced");
+  enhancement.Checked=true;Check(Save(),"per-car enhancement ON saves");LoadTarget();
+  Check(Convert.ToBoolean(drift["enhancedDriftCalculation"]),"per-car enhancement ON reloads");
   Check(File.ReadAllText(defaultSpecialPath)==defaultSpecialBytes&&File.ReadAllText(arcadePath)==arcadeBytes,"per-car speed preserves default and arcade settings");
   drift["speedLossPercent"]=101;Changed();Check(!Save()&&dirty,"out of range speed rejected without losing edits");
   dirty=false;LoadTarget();

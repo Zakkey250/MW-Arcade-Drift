@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "enabled": true,
+  "enhancedDriftCalculation": true,
   "entrySpeedMps": 12.0,
   "exitSpeedMps": 9.0,
   "entrySteer": 0.22,

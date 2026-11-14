@@ -85,6 +85,10 @@ inline void modeSpecialTests(){
    require(found,"native handling control is present in the GUI");
   }
   auto d=readProfileJson(root/"vehicles/SVJ/drift.json"),camera=readProfileJson(root/"vehicles/SVJ/camera.json");
+  require(parseSpecialProfile(d,camera).enhancedDriftCalculation,"new Special profile retains drift enhancement");
+  {auto legacy=d;legacy.erase("enhancedDriftCalculation");require(parseSpecialProfile(legacy,camera).enhancedDriftCalculation,"existing Special profiles retain accepted handling");}
+  for(bool on:{false,true}){auto changed=d;changed["enhancedDriftCalculation"]=on;require(parseSpecialProfile(changed,camera).enhancedDriftCalculation==on,"per-profile enhancement boolean round trip");}
+  for(auto badValue:{Json(0),Json("false"),Json(nullptr)}){auto bad=d;bad["enhancedDriftCalculation"]=badValue;bool rejected=false;try{parseSpecialProfile(bad,camera);}catch(...){rejected=true;}require(rejected,"enhancement rejects non-boolean settings");}
   for(unsigned test=0;test<5;test++){
    auto bad=d;if(test==0)bad["schemaVersion"]=2;else if(test==1)bad["unexpected"]=true;else if(test==2)bad["baseSlipRad"]=.4;else if(test==3)bad["exitSpeedMps"]=20;else bad["yawAccelLimit"]="4.5";
    bool rejected=false;try{parseSpecialProfile(bad,camera);}catch(...){rejected=true;}require(rejected,"special invalid schema/key/range/cross-field/type rejected");

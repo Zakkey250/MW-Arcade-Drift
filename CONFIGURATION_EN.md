@@ -1,4 +1,4 @@
-# MW Arcade Drift 0.2.0 — Configuration guide
+# MW Arcade Drift 0.2.1 — Configuration guide
 
 ## Modes
 
@@ -10,7 +10,7 @@ Compatible EventLoader events can select Special automatically, then restore you
 
 ## Editor and profiles
 
-Install the optional Editor 0.2.0 and run scripts/MWArcadeDrift/Configurator.exe using Windows .NET Framework 4.x. Select Arcade mode or Special mode, then Default or a vehicle, and use the Drift/Camera tabs. The active file path is shown in the window.
+Install the optional Editor 0.2.1 and run scripts/MWArcadeDrift/Configurator.exe using Windows .NET Framework 4.x. Select Arcade mode or Special mode, then Default or a vehicle, and use the Drift/Camera tabs. The active file path is shown in the window.
 
 Arcade profiles are in scripts/MWArcadeDrift/. Special profiles are under modes/special/. Each family has default_drift.json, default_camera.json and vehicles/<model>/drift.json and camera.json. Shared language and HUD settings remain in the top-level settings.json.
 
@@ -30,7 +30,9 @@ After saving, cycle Ctrl+D back to the edited mode to reload. Pause/resume alone
 
 Both Simple and Advanced show actual percentages. Grip at 100 retains the original value. Adjustments fade out at low speed and apply temporarily during driving, without changing shared car data or saved handling values.
 
-Special uses native wheel rotation and engine RPM. Special race AI has its own calibration; editing player Special profiles does not retune opponents.
+Enhanced drift calculation changes steering response in Special. It is not recommended for 4WD; turn it OFF if the response feels unsuitable. Save it independently in the Special default or per-car profile, then cycle Ctrl+D to reload. Omitted settings retain the previous enhancement (ON).
+
+Special also has powered-wheel rotation and smoke effects. Its engine RPM remains native. Special race AI has its own calibration; editing player Special profiles does not retune opponents.
 
 ## Arcade and camera controls
 
